@@ -1,0 +1,260 @@
+{
+  "info": {
+    "_postman_id": "dsw3-microservicos-collection-v1",
+    "name": "DSW3 - Catálogo e Pedidos (Microserviços)",
+    "description": "Coleção completa das APIs dos microserviços ms-produtos e ms-pedidos para a disciplina DSW 3 (IFSP). Inclui payloads de exemplo e cenários de sucesso e erro.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "produtos_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "pedidos_url",
+      "value": "http://localhost:3002",
+      "type": "string"
+    },
+    {
+      "key": "produto_id",
+      "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "type": "string"
+    },
+    {
+      "key": "pedido_id",
+      "value": "f9e8d7c6-b5a4-3210-fedc-ba9876543210",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "ms-produtos (Porta 3001)",
+      "item": [
+        {
+          "name": "POST /produtos - Cadastrar Produto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Monitor Gamer 27 165Hz\",\n  \"preco\": 1250.00,\n  \"descricao\": \"Monitor IPS 1ms FreeSync\",\n  \"estoque\": 15\n}"
+            },
+            "url": {
+              "raw": "{{produtos_url}}/produtos",
+              "host": [
+                "{{produtos_url}}"
+              ],
+              "path": [
+                "produtos"
+              ]
+            },
+            "description": "Cadastra um novo produto no catálogo com nome, preço unitário, descrição e quantidade em estoque."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /produtos - Listar Todos os Produtos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{produtos_url}}/produtos",
+              "host": [
+                "{{produtos_url}}"
+              ],
+              "path": [
+                "produtos"
+              ]
+            },
+            "description": "Retorna todos os produtos cadastrados no catálogo ativo."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /produtos/:id - Buscar Detalhes de um Produto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{produtos_url}}/produtos/{{produto_id}}",
+              "host": [
+                "{{produtos_url}}"
+              ],
+              "path": [
+                "produtos",
+                "{{produto_id}}"
+              ]
+            },
+            "description": "Recupera os detalhes de um produto específico através de seu UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /health - Health Check Produtos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{produtos_url}}/health",
+              "host": [
+                "{{produtos_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Verifica se o microserviço de produtos está operando normalmente."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "ms-pedidos (Porta 3002)",
+      "item": [
+        {
+          "name": "POST /pedidos - Criar Pedido (Sucesso 201 com Snapshot)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"produtoId\": \"{{produto_id}}\",\n  \"quantidade\": 2\n}"
+            },
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos"
+              ]
+            },
+            "description": "Cria um novo pedido consultando o catálogo de produtos de forma síncrona, validando estoque e salvando o snapshot imutável de nome e preço unitário."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /pedidos - Erro 400 (Estoque Insuficiente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"produtoId\": \"{{produto_id}}\",\n  \"quantidade\": 9999\n}"
+            },
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos"
+              ]
+            },
+            "description": "Cenário de teste para quantidade solicitada maior que o estoque cadastrado no produto."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /pedidos - Erro 404 (Produto Inexistente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"produtoId\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantidade\": 1\n}"
+            },
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos"
+              ]
+            },
+            "description": "Cenário de teste para UUID de produto inexistente no catálogo."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /pedidos - Listar Histórico de Pedidos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos"
+              ]
+            },
+            "description": "Lista todo o histórico de compras com snapshots preservados."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /pedidos/:id - Detalhes de um Pedido Específico",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos/{{pedido_id}}",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos",
+                "{{pedido_id}}"
+              ]
+            },
+            "description": "Recupera os detalhes e o snapshot completo de um pedido específico por ID."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /health - Health Check Pedidos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{pedidos_url}}/health",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Verifica se o microserviço de pedidos está operando normalmente."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
