@@ -1,0 +1,33 @@
+{
+  "name": "ms-produtos",
+  "version": "1.0.0",
+  "description": "Microserviço de Catálogo e Gestão de Produtos - DSW3 IFSP",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio"
+  },
+  "keywords": [
+    "microservices",
+    "express",
+    "prisma",
+    "dsw3"
+  ],
+  "author": "Enzo Alves dos Santos Souza",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9",
+    "prisma": "^6.4.1"
+  }
+}
