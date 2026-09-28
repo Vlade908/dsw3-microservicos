@@ -96,6 +96,53 @@
           "response": []
         },
         {
+          "name": "PUT /produtos/:id - Atualizar Produto (CRUD)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Monitor Gamer 27 165Hz (Editado)\",\n  \"preco\": 1199.90,\n  \"descricao\": \"Monitor IPS 1ms FreeSync HDR\",\n  \"estoque\": 20\n}"
+            },
+            "url": {
+              "raw": "{{produtos_url}}/produtos/{{produto_id}}",
+              "host": [
+                "{{produtos_url}}"
+              ],
+              "path": [
+                "produtos",
+                "{{produto_id}}"
+              ]
+            },
+            "description": "Atualiza os dados de um produto existente no catálogo."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /produtos/:id - Excluir Produto (CRUD)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{produtos_url}}/produtos/{{produto_id}}",
+              "host": [
+                "{{produtos_url}}"
+              ],
+              "path": [
+                "produtos",
+                "{{produto_id}}"
+              ]
+            },
+            "description": "Remove um produto do catálogo por UUID."
+          },
+          "response": []
+        },
+        {
           "name": "GET /health - Health Check Produtos",
           "request": {
             "method": "GET",
@@ -233,6 +280,26 @@
               ]
             },
             "description": "Recupera os detalhes e o snapshot completo de um pedido específico por ID."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /pedidos/:id/cancelar - Cancelar Pedido e Estornar Estoque",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos/{{pedido_id}}/cancelar",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos",
+                "{{pedido_id}}",
+                "cancelar"
+              ]
+            },
+            "description": "Cancela um pedido realizado e estorna automaticamente a quantidade comprada de volta ao estoque do produto no ms-produtos."
           },
           "response": []
         },

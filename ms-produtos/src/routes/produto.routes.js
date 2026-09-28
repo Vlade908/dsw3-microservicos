@@ -3,7 +3,9 @@ import {
   cadastrarProduto,
   listarProdutos,
   buscarProdutoPorId,
-  atualizarEstoqueProduto
+  atualizarEstoqueProduto,
+  atualizarProduto,
+  excluirProduto
 } from '../controllers/produto.controller.js';
 
 const router = Router();
@@ -11,6 +13,8 @@ const router = Router();
 router.post('/', cadastrarProduto);
 router.get('/', listarProdutos);
 router.get('/:id', buscarProdutoPorId);
+router.put('/:id', atualizarProduto);
+router.delete('/:id', excluirProduto);
 router.patch('/:id/estoque', atualizarEstoqueProduto);
 
 export default router;

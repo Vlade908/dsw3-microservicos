@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  ms-produtos:
+    build:
+      context: ./ms-produtos
+      dockerfile: Dockerfile
+    container_name: ms-produtos
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DATABASE_URL=file:./data/dev.db
+      - CORS_ORIGIN=http://localhost:3000
+    volumes:
+      - produtos-data:/app/prisma/data
+    networks:
+      - dsw3-network
+    restart: unless-stopped
+
+  ms-pedidos:
+    build:
+      context: ./ms-pedidos
+      dockerfile: Dockerfile
+    container_name: ms-pedidos
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - PRODUTOS_SERVICE_URL=http://ms-produtos:3001
+      - DATABASE_URL=file:./data/dev.db
+      - CORS_ORIGIN=http://localhost:3000
+    volumes:
+      - pedidos-data:/app/prisma/data
+    depends_on:
+      - ms-produtos
+    networks:
+      - dsw3-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend-dsw3
+    ports:
+      - "3000:3000"
+    depends_on:
+      - ms-produtos
+      - ms-pedidos
+    networks:
+      - dsw3-network
+    restart: unless-stopped
+
+volumes:
+  produtos-data:
+    driver: local
+  pedidos-data:
+    driver: local
+
+networks:
+  dsw3-network:
+    driver: bridge

@@ -61,6 +61,24 @@ export const produtoClient = {
       console.warn(`[ms-pedidos] Aviso ao atualizar estoque no ms-produtos para o produto ${produtoId}:`, error.message);
       return { success: false, error: error.message };
     }
+  },
+
+  /**
+   * Estornar estoque do produto após cancelamento de pedido
+   * @param {string} produtoId 
+   * @param {number} quantidade 
+   */
+  async incrementarEstoque(produtoId, quantidade) {
+    try {
+      await httpClient.patch(`/produtos/${produtoId}/estoque`, {
+        quantidade,
+        operacao: 'adicionar'
+      });
+      return { success: true };
+    } catch (error) {
+      console.warn(`[ms-pedidos] Aviso ao estornar estoque no ms-produtos para o produto ${produtoId}:`, error.message);
+      return { success: false, error: error.message };
+    }
   }
 };
 

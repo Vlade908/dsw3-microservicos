@@ -140,3 +140,47 @@ export async function buscarPedidoPorId(req, res) {
     return res.status(500).json({ error: 'Erro interno ao buscar pedido.' });
   }
 }
+
+/**
+ * Cancelar um pedido e estornar estoque no ms-produtos
+ * PATCH /pedidos/:id/cancelar
+ */
+export async function cancelarPedido(req, res) {
+  try {
+    const { id } = req.params;
+
+    const pedido = await prisma.pedido.findUnique({ where: { id } });
+    if (!pedido) {
+      return res.status(404).json({ error: 'Pedido não encontrado.' });
+    }
+
+    if (pedido.status === 'CANCELADO') {
+      return res.status(400).json({ error: 'Este pedido já está cancelado.' });
+    }
+
+    const pedidoAtualizado = await prisma.pedido.update({
+      where: { id },
+      data: { status: 'CANCELADO' },
+      select: {
+        id: true,
+        produtoId: true,
+        nomeProduto: true,
+        precoUnitario: true,
+        quantidade: true,
+        valorTotal: true,
+        dataPedido: true,
+        status: true
+      }
+    });
+
+    // Recompõe o estoque no ms-produtos de forma assíncrona/não-bloqueante
+    produtoClient.incrementarEstoque(pedido.produtoId, pedido.quantidade).catch(err => {
+      console.warn('[ms-pedidos] Falha ao estornar estoque no ms-produtos:', err);
+    });
+
+    return res.status(200).json(pedidoAtualizado);
+  } catch (error) {
+    console.error('[ms-pedidos] Erro ao cancelar pedido:', error);
+    return res.status(500).json({ error: 'Erro interno ao cancelar pedido.' });
+  }
+}
