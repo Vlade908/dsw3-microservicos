@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AlertCircle, RefreshCw, ServerOff } from 'lucide-react';
 import Header from './components/Header';
 import CatalogoProdutos from './components/CatalogoProdutos';
 import FormularioPedido from './components/FormularioPedido';
@@ -14,7 +15,7 @@ import {
 export default function App() {
   const [activeTab, setActiveTab] = useState('catalogo');
   
-  // Dados principais
+  // Estado dos dados principais
   const [produtos, setProdutos] = useState([]);
   const [loadingProdutos, setLoadingProdutos] = useState(false);
   const [erroProdutos, setErroProdutos] = useState(null);
@@ -28,7 +29,7 @@ export default function App() {
   const [pedidosOnline, setPedidosOnline] = useState(true);
   const [checkingHealth, setCheckingHealth] = useState(false);
 
-  // Produto selecionado a partir do Catálogo para o Formulário de Pedido
+  // Item selecionado para compra a partir da vitrine
   const [produtoPreSelecionado, setProdutoPreSelecionado] = useState(null);
 
   // Sistema de Toasts
@@ -46,7 +47,7 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Checagem de Saúde de ambos os microserviços
+  // Checagem de Saúde nos dois nós de backend
   const checkHealth = useCallback(async () => {
     setCheckingHealth(true);
     const [hProdutos, hPedidos] = await Promise.all([
@@ -58,7 +59,7 @@ export default function App() {
     setCheckingHealth(false);
   }, []);
 
-  // Carregar Catálogo de Produtos
+  // Carregamento de Produtos
   const carregarProdutos = useCallback(async () => {
     setLoadingProdutos(true);
     setErroProdutos(null);
@@ -67,15 +68,15 @@ export default function App() {
       setProdutos(response.data);
       setProdutosOnline(true);
     } catch (err) {
-      console.error('Falha ao carregar produtos:', err);
-      setErroProdutos('Não foi possível carregar o catálogo de produtos.');
+      console.error('Falha ao carregar catálogo:', err);
+      setErroProdutos('Não foi possível obter os produtos do ms-produtos (:3001).');
       setProdutosOnline(false);
     } finally {
       setLoadingProdutos(false);
     }
   }, []);
 
-  // Carregar Histórico de Pedidos
+  // Carregamento de Pedidos
   const carregarPedidos = useCallback(async () => {
     setLoadingPedidos(true);
     setErroPedidos(null);
@@ -85,14 +86,14 @@ export default function App() {
       setPedidosOnline(true);
     } catch (err) {
       console.error('Falha ao carregar pedidos:', err);
-      setErroPedidos('Não foi possível obter o histórico de pedidos.');
+      setErroPedidos('Não foi possível obter o histórico de compras do ms-pedidos (:3002).');
       setPedidosOnline(false);
     } finally {
       setLoadingPedidos(false);
     }
   }, []);
 
-  // Inicialização e polling de saúde a cada 12 segundos
+  // Polling de saúde contínuo a cada 10s
   useEffect(() => {
     checkHealth();
     carregarProdutos();
@@ -100,27 +101,62 @@ export default function App() {
 
     const interval = setInterval(() => {
       checkHealth();
-    }, 12000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [checkHealth, carregarProdutos, carregarPedidos]);
 
-  // Ação ao clicar em "Comprar" no Catálogo
   function handleSelecionarParaCompra(produto) {
     setProdutoPreSelecionado(produto);
     setActiveTab('pedido');
   }
 
-  // Ação ao concluir pedido
   function handlePedidoRealizado() {
     carregarProdutos();
     carregarPedidos();
   }
 
+  const algumServicoOffline = !produtosOnline || !pedidosOnline;
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800 antialiased">
       
-      {/* Topo com Navegação e Status */}
+      {/* Banner de Alta Visibilidade para Tolerância a Falhas ao Vivo (Regra 3) */}
+      {algumServicoOffline && (
+        <div 
+          className="bg-rose-600 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-xs animate-fade-in-up"
+          role="alert"
+        >
+          <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ServerOff className="w-4 h-4 flex-shrink-0 animate-pulse" />
+              <span>
+                <strong>Aviso de Resiliência:</strong>{' '}
+                {!produtosOnline && !pedidosOnline
+                  ? 'Os dois microsserviços (produtos e pedidos) estão offline.'
+                  : !produtosOnline
+                  ? 'O ms-produtos (:3001) está offline. A visualização de catálogo e validação síncrona foram pausadas.'
+                  : 'O ms-pedidos (:3002) está offline. O processamento e histórico de pedidos estão pausados.'}
+                {' '}A interface continua operando com degradação graciosa.
+              </span>
+            </div>
+
+            <button
+              onClick={() => {
+                checkHealth();
+                carregarProdutos();
+                carregarPedidos();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 bg-white/20 hover:bg-white/30 text-white font-bold rounded-lg transition-all active:scale-95 flex-shrink-0"
+            >
+              <RefreshCw className={`w-3 h-3 ${checkingHealth ? 'animate-spin' : ''}`} />
+              <span>Reconectar</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Topo com Navegação e Monitor de Serviços */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -132,53 +168,57 @@ export default function App() {
           carregarProdutos();
           carregarPedidos();
         }}
+        totalProdutos={produtos.length}
+        totalPedidos={pedidos.length}
       />
 
-      {/* Conteúdo Principal */}
+      {/* Conteúdo Principal com Animação Fluida */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'catalogo' && (
-          <CatalogoProdutos
-            produtos={produtos}
-            loading={loadingProdutos}
-            erro={erroProdutos}
-            onRecarregar={carregarProdutos}
-            onSelecionarParaCompra={handleSelecionarParaCompra}
-            onToast={addToast}
-          />
-        )}
+        <div className="animate-fade-in-up" key={activeTab}>
+          {activeTab === 'catalogo' && (
+            <CatalogoProdutos
+              produtos={produtos}
+              loading={loadingProdutos}
+              erro={erroProdutos}
+              onRecarregar={carregarProdutos}
+              onSelecionarParaCompra={handleSelecionarParaCompra}
+              onToast={addToast}
+            />
+          )}
 
-        {activeTab === 'pedido' && (
-          <FormularioPedido
-            produtos={produtos}
-            produtoPreSelecionado={produtoPreSelecionado}
-            onPedidoRealizado={handlePedidoRealizado}
-            onVerHistorico={() => setActiveTab('historico')}
-            onToast={addToast}
-          />
-        )}
+          {activeTab === 'pedido' && (
+            <FormularioPedido
+              produtos={produtos}
+              produtoPreSelecionado={produtoPreSelecionado}
+              onPedidoRealizado={handlePedidoRealizado}
+              onVerHistorico={() => setActiveTab('historico')}
+              onToast={addToast}
+            />
+          )}
 
-        {activeTab === 'historico' && (
-          <HistoricoPedidos
-            pedidos={pedidos}
-            loading={loadingPedidos}
-            erro={erroPedidos}
-            onRecarregar={() => {
-              carregarPedidos();
-              carregarProdutos();
-            }}
-            onToast={addToast}
-          />
-        )}
+          {activeTab === 'historico' && (
+            <HistoricoPedidos
+              pedidos={pedidos}
+              loading={loadingPedidos}
+              erro={erroPedidos}
+              onRecarregar={() => {
+                carregarPedidos();
+                carregarProdutos();
+              }}
+              onToast={addToast}
+            />
+          )}
+        </div>
       </main>
 
-      {/* Rodapé Informativo */}
-      <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+      {/* Rodapé Comercial Limpo */}
+      <footer className="bg-white border-t border-slate-200/80 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 space-y-1">
-          <p className="font-semibold text-slate-700">
-            DSW 3 — Projeto Prático de Arquitetura de Microserviços
+          <p className="font-bold text-slate-700">
+            NEXUS TECH STORE • Arquitetura de Microserviços
           </p>
-          <p>
-            IFSP • Câmpus Capivari • Engenharia de Software & Sistemas Distribuídos
+          <p className="text-slate-400">
+            IFSP • Câmpus Capivari • Projeto Prático DSW 3 • Prof. Me. André Luís Bordignon
           </p>
         </div>
       </footer>
