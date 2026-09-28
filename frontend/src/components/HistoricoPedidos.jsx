@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Receipt, 
   RefreshCw, 
@@ -27,6 +28,26 @@ export default function HistoricoPedidos({
   const [cancelandoId, setCancelandoId] = useState(null);
   const [copiadoId, setCopiadoId] = useState(null);
   const [pedidoDetalhe, setPedidoDetalhe] = useState(null);
+
+  // Bloqueio de scroll do body e listener para ESC quando o modal estiver aberto
+  useEffect(() => {
+    if (!pedidoDetalhe) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        setPedidoDetalhe(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [pedidoDetalhe]);
 
   async function handleCancelar(pedido) {
     if (pedido.status === 'CANCELADO') return;
@@ -291,21 +312,39 @@ export default function HistoricoPedidos({
       </div>
 
       {/* Modal de Recibo Detalhado (Comprovação Integral do Snapshot Pattern) */}
-      {pedidoDetalhe && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in-up">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden">
+      {pedidoDetalhe && createPortal(
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setPedidoDetalhe(null);
+            }
+          }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md transition-all duration-200"
+          style={{ margin: 0, top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh' }}
+          aria-modal="true"
+          role="dialog"
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-fade-in-up relative z-10">
             
             {/* Topo do Recibo */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">
-                  Recibo Oficial do Pedido
-                </h3>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                  <Receipt className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Recibo Oficial do Pedido
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Snapshot imutável gravado no <code className="text-blue-600 font-mono">ms-pedidos</code>
+                  </p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setPedidoDetalhe(null)}
-                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg transition-colors"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/50 transition-colors"
                 aria-label="Fechar recibo"
               >
                 <X className="w-4 h-4" />
@@ -368,14 +407,16 @@ export default function HistoricoPedidos({
             {/* Ações do Recibo */}
             <div className="flex items-center justify-end p-4 border-t border-slate-100 bg-slate-50/50">
               <button
+                type="button"
                 onClick={() => setPedidoDetalhe(null)}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all active:scale-95"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shadow-sm"
               >
                 Fechar Recibo
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

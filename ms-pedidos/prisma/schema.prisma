@@ -17,3 +17,14 @@ model Pedido {
   dataPedido    DateTime @default(now())
   status        String   @default("REALIZADO")
 }
+
+// Cache local replicado via Event Broker (Materialized View para alta resiliência)
+model ProdutoCache {
+  id        String   @id
+  nome      String
+  preco     Float
+  estoque   Int
+  descricao String?
+  updatedAt DateTime @updatedAt
+}
+

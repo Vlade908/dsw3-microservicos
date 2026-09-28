@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Projeção de Leitura de Produtos (Read Model CQRS)
+model QueryProduto {
+  id        String   @id
+  nome      String
+  preco     Float
+  descricao String?
+  estoque   Int
+  updatedAt DateTime @updatedAt
+}
+
+// Projeção de Leitura de Pedidos (Read Model CQRS)
+model QueryPedido {
+  id            String   @id
+  produtoId     String
+  nomeProduto   String
+  precoUnitario Float
+  quantidade    Int
+  valorTotal    Float
+  dataPedido    DateTime @default(now())
+  status        String   @default("REALIZADO")
+  updatedAt     DateTime @updatedAt
+}

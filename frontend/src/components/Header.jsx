@@ -6,12 +6,14 @@ export default function Header({
   setActiveTab,
   produtosOnline,
   pedidosOnline,
+  brokerOnline = true,
+  queryOnline = true,
   checkingHealth,
   onRefreshHealth,
   totalProdutos = 0,
   totalPedidos = 0
 }) {
-  const todosOnline = produtosOnline && pedidosOnline;
+  const todosOnline = produtosOnline && pedidosOnline && brokerOnline && queryOnline;
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
@@ -70,6 +72,38 @@ export default function Header({
               <span className={`w-1.5 h-1.5 rounded-full ${pedidosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
               <span>pedidos :3002</span>
             </div>
+
+            {/* Status event-broker */}
+            <a 
+              href="http://localhost:3003"
+              target="_blank"
+              rel="noreferrer"
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold text-[11px] border transition-colors ${
+                brokerOnline
+                  ? 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
+                  : 'bg-rose-50 text-rose-800 border-rose-200'
+              }`}
+              title={`event-broker: porta 3003 (${brokerOnline ? 'ONLINE - Clique para abrir o Monitor' : 'OFFLINE'})`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${brokerOnline ? 'bg-purple-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span>broker :3003</span>
+            </a>
+
+            {/* Status ms-query */}
+            <a 
+              href="http://localhost:3004"
+              target="_blank"
+              rel="noreferrer"
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold text-[11px] border transition-colors ${
+                queryOnline
+                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200 hover:bg-cyan-100'
+                  : 'bg-rose-50 text-rose-800 border-rose-200'
+              }`}
+              title={`ms-query: porta 3004 (${queryOnline ? 'ONLINE - Clique para abrir o Dashboard CQRS' : 'OFFLINE'})`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${queryOnline ? 'bg-cyan-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span>query :3004</span>
+            </a>
 
             {/* Botão de Refresh Tátil */}
             <button

@@ -107,7 +107,7 @@ export default function FormularioPedido({
         } else if (err.response.status === 404) {
           mensagem = err.response.data?.error || 'Produto não encontrado no catálogo ativo.';
         } else if (err.response.status === 503) {
-          mensagem = 'O ms-produtos está inacessível. A validação síncrona de preço e saldo falhou (HTTP 503).';
+          mensagem = err.response.data?.error || 'Serviço temporariamente indisponível (HTTP 503).';
         } else {
           mensagem = err.response.data?.error || `Erro HTTP ${err.response.status}`;
         }

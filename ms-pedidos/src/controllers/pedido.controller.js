@@ -1,5 +1,6 @@
 import prisma from '../database/prisma.js';
 import produtoClient from '../services/produtoClient.js';
+import brokerClient from '../services/brokerClient.js';
 
 /**
  * Criar um novo pedido
@@ -67,10 +68,24 @@ export async function criarPedido(req, res) {
       }
     });
 
-    // 4. Baixa no estoque do ms-produtos (assíncrona/não impeditiva do pedido realizado)
-    produtoClient.decrementarEstoque(produto.id, quantidade).catch(err => {
-      console.warn('[ms-pedidos] Falha ao dar baixa de estoque no ms-produtos:', err);
+    // 4. Atualizar saldo no Cache Local do ms-pedidos (garante consistência local imediata)
+    prisma.produtoCache.updateMany({
+      where: { id: produto.id },
+      data: { estoque: Math.max(0, produto.estoque - quantidade) }
+    }).catch(() => {});
+
+    // 5. Publicação garantida no Barramento de Eventos (Event Broker)
+    // Se o ms-produtos estiver offline, o broker reterá o evento até sua recuperação
+    brokerClient.publicarEvento('pedidos', 'PEDIDO_CRIADO', {
+      pedidoId: novoPedido.id,
+      produtoId: produto.id,
+      quantidade,
+      precoUnitario,
+      valorTotal
     });
+
+    // 6. Chamada direta de compatibilidade (não-bloqueante)
+    produtoClient.decrementarEstoque(produto.id, quantidade).catch(() => {});
 
     return res.status(201).json(novoPedido);
   } catch (error) {
@@ -173,10 +188,24 @@ export async function cancelarPedido(req, res) {
       }
     });
 
-    // Recompõe o estoque no ms-produtos de forma assíncrona/não-bloqueante
-    produtoClient.incrementarEstoque(pedido.produtoId, pedido.quantidade).catch(err => {
-      console.warn('[ms-pedidos] Falha ao estornar estoque no ms-produtos:', err);
+    // Recompõe o estoque no Cache Local do ms-pedidos
+    const cached = await prisma.produtoCache.findUnique({ where: { id: pedido.produtoId } });
+    if (cached) {
+      await prisma.produtoCache.update({
+        where: { id: pedido.produtoId },
+        data: { estoque: cached.estoque + pedido.quantidade }
+      });
+    }
+
+    // Publicação assíncrona do cancelamento no Event Broker
+    brokerClient.publicarEvento('pedidos', 'PEDIDO_CANCELADO', {
+      pedidoId: pedido.id,
+      produtoId: pedido.produtoId,
+      quantidade: pedido.quantidade
     });
+
+    // Tentativa direta HTTP de estorno (não-bloqueante)
+    produtoClient.incrementarEstoque(pedido.produtoId, pedido.quantidade).catch(() => {});
 
     return res.status(200).json(pedidoAtualizado);
   } catch (error) {

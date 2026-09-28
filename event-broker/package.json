@@ -1,0 +1,24 @@
+{
+  "name": "event-broker",
+  "version": "1.0.0",
+  "description": "Barramento e Broker de Mensageria Resiliente para DSW3",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": ["event-driven", "broker", "resilience", "microservices"],
+  "author": "Enzo Alves dos Santos Souza",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

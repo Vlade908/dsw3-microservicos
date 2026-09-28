@@ -2,6 +2,8 @@ import axios from 'axios';
 
 export const PRODUTOS_API_URL = import.meta.env.VITE_PRODUTOS_API_URL || 'http://localhost:3001';
 export const PEDIDOS_API_URL = import.meta.env.VITE_PEDIDOS_API_URL || 'http://localhost:3002';
+export const BROKER_API_URL = import.meta.env.VITE_BROKER_API_URL || 'http://localhost:3003';
+export const QUERY_API_URL = import.meta.env.VITE_QUERY_API_URL || 'http://localhost:3004';
 
 // Instância Axios para o Microserviço de Produtos
 export const produtosApi = axios.create({
@@ -12,6 +14,18 @@ export const produtosApi = axios.create({
 // Instância Axios para o Microserviço de Pedidos
 export const pedidosApi = axios.create({
   baseURL: PEDIDOS_API_URL,
+  timeout: 4000
+});
+
+// Instância Axios para o Event Broker
+export const brokerApi = axios.create({
+  baseURL: BROKER_API_URL,
+  timeout: 4000
+});
+
+// Instância Axios para o Query Service (CQRS)
+export const queryApi = axios.create({
+  baseURL: QUERY_API_URL,
   timeout: 4000
 });
 
@@ -28,6 +42,24 @@ export async function checkProdutosHealth() {
 export async function checkPedidosHealth() {
   try {
     const response = await pedidosApi.get('/health', { timeout: 2000 });
+    return { online: response.status === 200, data: response.data };
+  } catch (error) {
+    return { online: false, error: error.message };
+  }
+}
+
+export async function checkBrokerHealth() {
+  try {
+    const response = await brokerApi.get('/health', { timeout: 2000 });
+    return { online: response.status === 200, data: response.data };
+  } catch (error) {
+    return { online: false, error: error.message };
+  }
+}
+
+export async function checkQueryHealth() {
+  try {
+    const response = await queryApi.get('/health', { timeout: 2000 });
     return { online: response.status === 200, data: response.data };
   } catch (error) {
     return { online: false, error: error.message };

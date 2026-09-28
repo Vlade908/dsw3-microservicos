@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import produtoRoutes from './routes/produto.routes.js';
+import eventoRoutes from './routes/evento.routes.js';
+import brokerClient from './services/brokerClient.js';
 
 dotenv.config();
 
@@ -23,7 +25,11 @@ app.get('/health', (req, res) => {
 
 // Rotas principais
 app.use('/produtos', produtoRoutes);
+app.use('/eventos', eventoRoutes);
 
 app.listen(PORT, () => {
   console.log(`[ms-produtos] Servidor rodando na porta ${PORT}`);
+  // Iniciar conexão com o Barramento de Eventos (Event Broker)
+  brokerClient.iniciar();
 });
+

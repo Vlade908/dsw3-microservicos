@@ -8,8 +8,11 @@ import ToastContainer from './components/Toast';
 import {
   produtosApi,
   pedidosApi,
+  queryApi,
   checkProdutosHealth,
-  checkPedidosHealth
+  checkPedidosHealth,
+  checkBrokerHealth,
+  checkQueryHealth
 } from './services/api';
 
 export default function App() {
@@ -27,6 +30,9 @@ export default function App() {
   // Monitoramento de saúde dos microserviços
   const [produtosOnline, setProdutosOnline] = useState(true);
   const [pedidosOnline, setPedidosOnline] = useState(true);
+  const [brokerOnline, setBrokerOnline] = useState(true);
+  const [queryOnline, setQueryOnline] = useState(true);
+  const [usandoCacheProdutos, setUsandoCacheProdutos] = useState(false);
   const [checkingHealth, setCheckingHealth] = useState(false);
 
   // Item selecionado para compra a partir da vitrine
@@ -47,19 +53,23 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Checagem de Saúde nos dois nós de backend
+  // Checagem de Saúde nos nós de backend, barramento e query service
   const checkHealth = useCallback(async () => {
     setCheckingHealth(true);
-    const [hProdutos, hPedidos] = await Promise.all([
+    const [hProdutos, hPedidos, hBroker, hQuery] = await Promise.all([
       checkProdutosHealth(),
-      checkPedidosHealth()
+      checkPedidosHealth(),
+      checkBrokerHealth(),
+      checkQueryHealth()
     ]);
     setProdutosOnline(hProdutos.online);
     setPedidosOnline(hPedidos.online);
+    setBrokerOnline(hBroker.online);
+    setQueryOnline(hQuery.online);
     setCheckingHealth(false);
   }, []);
 
-  // Carregamento de Produtos
+  // Carregamento de Produtos com Fallback no Query Service e Cache Local
   const carregarProdutos = useCallback(async () => {
     setLoadingProdutos(true);
     setErroProdutos(null);
@@ -67,16 +77,45 @@ export default function App() {
       const response = await produtosApi.get('/produtos');
       setProdutos(response.data);
       setProdutosOnline(true);
+      setUsandoCacheProdutos(false);
+      try {
+        localStorage.setItem('dsw3_produtos_cache', JSON.stringify(response.data));
+      } catch (_) {}
     } catch (err) {
-      console.error('Falha ao carregar catálogo:', err);
-      setErroProdutos('Não foi possível obter os produtos do ms-produtos (:3001).');
       setProdutosOnline(false);
+      // 1. Tentar consultar no Query Service (ms-query :3004)
+      try {
+        const queryRes = await queryApi.get('/query/produtos');
+        if (Array.isArray(queryRes.data) && queryRes.data.length > 0) {
+          setProdutos(queryRes.data);
+          setUsandoCacheProdutos(true);
+          setErroProdutos(null);
+          console.log('[frontend] RESILIÊNCIA CQRS: Catálogo obtido via ms-query (:3004).');
+          return;
+        }
+      } catch (_) {}
+
+      // 2. Tentar recuperar do localStorage se o Query Service também estiver fora
+      const cached = localStorage.getItem('dsw3_produtos_cache');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProdutos(parsed);
+            setUsandoCacheProdutos(true);
+            setErroProdutos(null);
+            console.log('[frontend] RESILIÊNCIA ATIVA: Vitrine renderizada via Cache Local.');
+            return;
+          }
+        } catch (_) {}
+      }
+      setErroProdutos('Não foi possível obter os produtos do ms-produtos (:3001) nem do Query Service (:3004).');
     } finally {
       setLoadingProdutos(false);
     }
   }, []);
 
-  // Carregamento de Pedidos
+  // Carregamento de Pedidos com Fallback no Query Service
   const carregarPedidos = useCallback(async () => {
     setLoadingPedidos(true);
     setErroPedidos(null);
@@ -85,9 +124,20 @@ export default function App() {
       setPedidos(response.data);
       setPedidosOnline(true);
     } catch (err) {
-      console.error('Falha ao carregar pedidos:', err);
-      setErroPedidos('Não foi possível obter o histórico de compras do ms-pedidos (:3002).');
       setPedidosOnline(false);
+      // Tentar consultar histórico no Query Service (ms-query :3004)
+      try {
+        const queryRes = await queryApi.get('/query/pedidos');
+        if (Array.isArray(queryRes.data)) {
+          setPedidos(queryRes.data);
+          setErroPedidos(null);
+          console.log('[frontend] RESILIÊNCIA CQRS: Histórico obtido via ms-query (:3004).');
+          return;
+        }
+      } catch (_) {}
+
+      console.error('Falha ao carregar pedidos:', err);
+      setErroPedidos('Não foi possível obter o histórico de compras do ms-pedidos (:3002) nem do Query Service.');
     } finally {
       setLoadingPedidos(false);
     }
@@ -135,9 +185,8 @@ export default function App() {
                 {!produtosOnline && !pedidosOnline
                   ? 'Os dois microsserviços (produtos e pedidos) estão offline.'
                   : !produtosOnline
-                  ? 'O ms-produtos (:3001) está offline. A visualização de catálogo e validação síncrona foram pausadas.'
-                  : 'O ms-pedidos (:3002) está offline. O processamento e histórico de pedidos estão pausados.'}
-                {' '}A interface continua operando com degradação graciosa.
+                  ? 'O ms-produtos (:3001) está offline. O frontend está operando com Cache Local e o ms-pedidos (:3002) continuará efetuando compras com Cache Replicado e enfileirando eventos no Broker (:3003)!'
+                  : 'O ms-pedidos (:3002) está offline. O catálogo continua navegável e as operações serão processadas assim que o serviço recuperar.'}
               </span>
             </div>
 
@@ -162,6 +211,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         produtosOnline={produtosOnline}
         pedidosOnline={pedidosOnline}
+        brokerOnline={brokerOnline}
+        queryOnline={queryOnline}
         checkingHealth={checkingHealth}
         onRefreshHealth={() => {
           checkHealth();

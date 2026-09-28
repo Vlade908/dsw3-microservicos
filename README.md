@@ -15,11 +15,11 @@ Aplicação web distribuída de ponta a ponta desenvolvida sob o padrão arquite
 
 ### Padrões Arquiteturais Implementados
 - **Database-per-Service:** Cada microsserviço gerencia exclusivamente sua própria base de dados relacional (SQLite via Prisma ORM). O isolamento é total: nenhum microsserviço realiza consultas diretas ao banco do outro.
-- **Snapshot Pattern:** No momento da realização de um pedido (`POST /pedidos`), o `ms-pedidos` consulta síncronamente o `ms-produtos` e grava uma **cópia imutável** do `nomeProduto` e do `precoUnitario` no banco de pedidos. Isso impede que atualizações cadastrais ou alterações de preços futuras distorçam o histórico contábil/financeiro das compras já efetuadas.
-- **Comunicação Síncrona Service-to-Service:** O `ms-pedidos` utiliza cliente HTTP Axios para consultar `GET /produtos/:id` antes de consolidar qualquer pedido, validando simultaneamente existência e saldo de estoque.
-- **Compensação e Ciclo de Vida (Estorno de Estoque):** No cancelamento do pedido (`PATCH /pedidos/:id/cancelar`), o `ms-pedidos` comunica-se com o `ms-produtos` para estornar a quantidade ao estoque em tempo real.
-- **Resiliência e Degradação Graciosa:** Códigos de resposta HTTP padronizados (`201`, `400`, `404` e `503 Service Unavailable` em falhas remotas). No frontend, caso um dos microsserviços caia ou fique offline, o sistema não gera tela branca, exibindo avisos amigáveis e mantendo as demais funcionalidades ativas.
-- **Persistência Segura de Contêineres:** Bancos SQLite alocados na subpasta isolada `/app/prisma/data/dev.db` com volumes Docker nomeados independentes, evitando a sobreposição de arquivos durante o `npx prisma generate` e inicialização.
+- **Snapshot Pattern:** No momento da realização de um pedido (`POST /pedidos`), o `ms-pedidos` grava uma **cópia imutável** do `nomeProduto` e do `precoUnitario` no banco de pedidos. Isso impede que atualizações cadastrais ou alterações de preços futuras distorçam o histórico contábil/financeiro das compras já efetuadas.
+- **Event-Driven Architecture & Cache Local Replicado (Materialized View):** O sistema conta com um **Event Broker** dedicado (`event-broker`, porta 3003) com garantia de entrega (*at-least-once*) e retentativas automáticas. O `ms-produtos` publica eventos de ciclo de vida (`PRODUTO_CRIADO`, `PRODUTO_ATUALIZADO`, `ESTOQUE_ATUALIZADO`, `PRODUTO_EXCLUIDO`), enquanto o `ms-pedidos` os consome e mantém sua própria tabela `ProdutoCache`.
+- **CQRS & Query Service Dedicado (ms-query, porta 3004):** O sistema agora conta com um microsserviço de consulta dedicado que implementa o padrão **CQRS (Command Query Responsibility Segregation)**. O `ms-query` mantém uma réplica consolidada dos bancos de dados (projeções de leitura de Produtos e Pedidos) alimentada via `event-broker`. As leituras no frontend e análises agregadas ocorrem com latência ultra-baixa sem competir por recursos de I/O com os serviços transacionais de escrita.
+- **Desacoplamento Temporal e Alta Resiliência (Zero Single Point of Failure):** Se o `ms-produtos` cair, o `ms-pedidos` continua realizando pedidos via Cache Replicado e o Frontend continua visualizando produtos e pedidos através do `ms-query` (ou cache local). O sistema sobrevive à queda de múltiplos serviços!
+- **Compensação e Ciclo de Vida (Estorno de Estoque):** No cancelamento do pedido (`PATCH /pedidos/:id/cancelar`), o `ms-pedidos` recompõe seu saldo local e publica um evento `PEDIDO_CANCELADO` no broker para estornar o estoque oficial no `ms-produtos` e na projeção do `ms-query`.
 
 ---
 
@@ -31,32 +31,52 @@ flowchart TD
         SPA["Frontend SPA (React + Vite + Tailwind)<br/>Porta: 3000"]
     end
 
-    subgraph CamadaMicroservicos["Camada de Microserviços (Node.js + Express)"]
-        subgraph DominioPedidos["Domínio de Pedidos"]
-            MS_PED["Microserviço Pedidos (ms-pedidos)<br/>Porta: 3002"]
-            DB_PED[("Banco SQLite Independente<br/>/app/prisma/data/dev.db")]
+    subgraph CamadaBarramento["Barramento de Eventos Assíncronos"]
+        BROKER["Event Broker (event-broker)<br/>Porta: 3003<br/>Fila com Retentativa & Dashboard Web"]
+    end
+
+    subgraph CamadaConsulta["Camada CQRS (Query Service)"]
+        MS_QUERY["Query Service (ms-query)<br/>Porta: 3004"]
+        DB_QUERY[("Banco SQLite Replicado<br/>Projeção Produtos + Pedidos")]
+        MS_QUERY --- DB_QUERY
+    end
+
+    subgraph CamadaComando["Microsserviços Transacionais (Command)"]
+        subgraph DominioPedidos["ms-pedidos (:3002)"]
+            MS_PED["Microserviço Pedidos"]
+            DB_PED[("SQLite Independente<br/>Pedidos + ProdutoCache")]
             MS_PED --- DB_PED
         end
 
-        subgraph DominioProdutos["Domínio de Produtos"]
-            MS_PROD["Microserviço Produtos (ms-produtos)<br/>Porta: 3001"]
-            DB_PROD[("Banco SQLite Independente<br/>/app/prisma/data/dev.db")]
+        subgraph DominioProdutos["ms-produtos (:3001)"]
+            MS_PROD["Microserviço Produtos"]
+            DB_PROD[("SQLite Independente<br/>Catálogo Oficial")]
             MS_PROD --- DB_PROD
         end
     end
 
-    SPA -->|"1. Catálogo & CRUD (GET, POST, PUT, DELETE /produtos)"| MS_PROD
-    SPA -->|"3. Gestão de Pedidos (POST, GET, PATCH /pedidos)"| MS_PED
-    MS_PED -->|"2. Validação Síncrona & Snapshot (GET /produtos/:id)"| MS_PROD
-    MS_PED -.->|"4. Baixa e Estorno de Estoque (PATCH /produtos/:id/estoque)"| MS_PROD
+    SPA -->|"1. Compras (POST, PATCH /pedidos)"| MS_PED
+    SPA -->|"2. CRUD Catálogo (POST, PUT, DELETE)"| MS_PROD
+    SPA -.->|"3. Consultas Resilientes (GET /query/...)"| MS_QUERY
+    
+    MS_PROD -->|"4. Publica Eventos de Catálogo"| BROKER
+    MS_PED -->|"5. Publica Eventos de Pedidos"| BROKER
+    
+    BROKER -->|"6. Alimenta Cache do ms-pedidos"| MS_PED
+    BROKER -->|"7. Alimenta Projeções do ms-query"| MS_QUERY
+    BROKER -.->|"8. Baixa & Estorno de Estoque"| MS_PROD
 
     classDef client fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
+    classDef broker fill:#f3e8ff,stroke:#9333ea,stroke-width:2px;
+    classDef query fill:#cffafe,stroke:#0891b2,stroke-width:2px;
     classDef ms fill:#f8fafc,stroke:#334155,stroke-width:2px;
     classDef db fill:#fef3c7,stroke:#d97706,stroke-width:2px;
 
     class SPA client;
+    class BROKER broker;
+    class MS_QUERY query;
     class MS_PED,MS_PROD ms;
-    class DB_PED,DB_PROD db;
+    class DB_PED,DB_PROD,DB_QUERY db;
 ```
 
 ---
@@ -65,9 +85,11 @@ flowchart TD
 
 | Componente | Diretório | Tecnologias Principais | Porta | Persistência / Volume |
 | :--- | :--- | :--- | :---: | :--- |
+| **event-broker** | `/event-broker` | Node.js 20, Express, Pub/Sub, Queue Retry | `3003` | Volume Docker `broker-data` (`/app/data`) |
+| **ms-query** | `/ms-query` | Node.js 20, Express, Prisma ORM, CQRS Read Model | `3004` | Volume Docker `query-data` (`/app/prisma/data`) |
 | **ms-produtos** | `/ms-produtos` | Node.js 20, Express, Prisma ORM, SQLite | `3001` | Volume Docker `produtos-data` (`/app/prisma/data`) |
-| **ms-pedidos** | `/ms-pedidos` | Node.js 20, Express, Axios, Prisma ORM, SQLite | `3002` | Volume Docker `pedidos-data` (`/app/prisma/data`) |
-| **Frontend** | `/frontend` | React 18, Vite, Axios, Tailwind CSS, Lucide, Nginx | `3000` | N/A (Build SPA estático multi-stage) |
+| **ms-pedidos** | `/ms-pedidos` | Node.js 20, Express, Prisma ORM, SQLite, Cache | `3002` | Volume Docker `pedidos-data` (`/app/prisma/data`) |
+| **Frontend** | `/frontend` | React 18, Vite, Axios, Tailwind CSS, Lucide | `3000` | N/A (Build SPA estático multi-stage Nginx) |
 | **Orquestrador** | `/` | Docker Compose (v3.8) | — | Rede interna `dsw3-network` (bridge) |
 
 ---
@@ -204,11 +226,21 @@ Para as bancas avaliativas dos **Momentos 2 e 4**, utilize o roteiro prático ab
 1. Tente realizar um pedido com quantidade superior ao estoque atual. A interface exibirá validação local e, se forçado via API, responderá `HTTP 400` com a mensagem orientativa de quantidade disponível.
 2. Tente consultar um UUID inexistente via Postman: retorno `HTTP 404`.
 
-### Teste 4: Tolerância a Falhas e Resiliência ao Vivo
-1. No terminal do Docker ou processo local, derrube o `ms-produtos` (`docker stop ms-produtos` ou `Ctrl + C`).
-2. Observe o **Monitor de Saúde** no topo do frontend: a badge do `ms-produtos :3001` ficará vermelha.
-3. Tente realizar um pedido no `ms-pedidos`: o serviço responderá graciosamente com **`HTTP 503 Service Unavailable`** e o frontend exibirá um aviso explicativo, **sem quebrar nem gerar tela branca**.
-4. Reinicie o serviço (`docker start ms-produtos`): a badge voltará a ficar verde e o sistema continuará operando normalmente.
+### Teste 4: Tolerância a Falhas e Desacoplamento Temporal ao Vivo (Event Broker & Cache Replicado)
+1. Com todos os serviços rodando, abra o **Monitor do Event Broker** em `http://localhost:3003` para ver as mensagens trafegadas e a fila em tempo real.
+2. No terminal do Docker, derrube o `ms-produtos`:
+   ```bash
+   docker stop ms-produtos
+   ```
+3. Observe o **Monitor de Serviços** no topo do frontend: a badge do `ms-produtos :3001` ficará vermelha, mas o sistema avisa que o **Modo Resiliente com Cache Local** está ativo.
+4. Vá para a aba **Fazer Compra**: os produtos continuam listados a partir do cache local!
+5. **Realize um pedido normalmente:** O `ms-pedidos` consulta seu próprio `ProdutoCache` independente, **aprova o pedido imediatamente (HTTP 201 Created)** e congela o snapshot, **sem cair e sem rejeitar o cliente**!
+6. Olhe no painel do **Event Broker** (`http://localhost:3003`): o evento de baixa de estoque `PEDIDO_CRIADO` estará na fila (`QUEUED` / `RETRYING`), retido com garantia de entrega.
+7. Agora religue o serviço de produtos no terminal:
+   ```bash
+   docker start ms-produtos
+   ```
+8. Em segundos, o Broker entrega a mensagem pendente (`DELIVERED`) e o estoque oficial no SQLite do `ms-produtos` é atualizado retroativamente! A resiliência é completa e autônoma.
 
 ---
 

@@ -1,4 +1,5 @@
 import prisma from '../database/prisma.js';
+import brokerClient from '../services/brokerClient.js';
 
 /**
  * Cadastrar um novo produto
@@ -35,6 +36,9 @@ export async function cadastrarProduto(req, res) {
         estoque: true
       }
     });
+
+    // Publicar evento assíncrono para replicar cache no ms-pedidos
+    brokerClient.publicarEvento('produtos', 'PRODUTO_CRIADO', novoProduto);
 
     return res.status(201).json(novoProduto);
   } catch (error) {
@@ -141,6 +145,9 @@ export async function atualizarEstoqueProduto(req, res) {
       }
     });
 
+    // Notificar broker sobre a alteração de estoque
+    brokerClient.publicarEvento('produtos', 'ESTOQUE_ATUALIZADO', produtoAtualizado);
+
     return res.status(200).json(produtoAtualizado);
   } catch (error) {
     console.error('[ms-produtos] Erro ao atualizar estoque:', error);
@@ -191,6 +198,9 @@ export async function atualizarProduto(req, res) {
       }
     });
 
+    // Notificar broker sobre a atualização cadastral
+    brokerClient.publicarEvento('produtos', 'PRODUTO_ATUALIZADO', produtoAtualizado);
+
     return res.status(200).json(produtoAtualizado);
   } catch (error) {
     console.error('[ms-produtos] Erro ao atualizar produto:', error);
@@ -212,6 +222,9 @@ export async function excluirProduto(req, res) {
     }
 
     await prisma.produto.delete({ where: { id } });
+
+    // Notificar broker sobre exclusão do produto
+    brokerClient.publicarEvento('produtos', 'PRODUTO_EXCLUIDO', { id });
 
     return res.status(200).json({ message: 'Produto excluído com sucesso.' });
   } catch (error) {
