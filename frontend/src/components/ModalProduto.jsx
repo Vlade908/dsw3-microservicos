@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Save, Plus, AlertCircle, Loader2, Info } from 'lucide-react';
-import { produtosApi } from '../services/api';
+import { produtosApi, brokerApi } from '../services/api';
 
 export default function ModalProduto({ isOpen, onClose, produtoParaEditar, onSalvo, onToast }) {
   const [nome, setNome] = useState('');
@@ -82,25 +82,62 @@ export default function ModalProduto({ isOpen, onClose, produtoParaEditar, onSal
     setSalvando(true);
     try {
       if (modoEdicao) {
-        await produtosApi.put(`/produtos/${produtoParaEditar.id}`, payload);
-        onToast({
-          type: 'success',
-          title: 'Produto Atualizado',
-          message: `"${payload.nome}" foi atualizado no catálogo.`
-        });
+        try {
+          await produtosApi.put(`/produtos/${produtoParaEditar.id}`, payload);
+          onToast({
+            type: 'success',
+            title: 'Produto Atualizado',
+            message: `"${payload.nome}" foi atualizado no catálogo.`
+          });
+        } catch (err) {
+          console.warn('[frontend] ms-produtos offline. Publicando atualização no Barramento...');
+          const itemAtualizado = { id: produtoParaEditar.id, ...payload };
+          await brokerApi.post('/publish', {
+            topic: 'produtos',
+            event: 'PRODUTO_ATUALIZAR_COMANDO',
+            payload: itemAtualizado
+          });
+          onToast({
+            type: 'warning',
+            title: 'Atualização Enfileirada (Modo Resiliente)',
+            message: `O ms-produtos está offline! A alteração de "${payload.nome}" foi enfileirada no Barramento e sincronizada na vitrine.`
+          });
+          await new Promise(r => setTimeout(r, 150));
+        }
       } else {
-        await produtosApi.post('/produtos', payload);
-        onToast({
-          type: 'success',
-          title: 'Produto Cadastrado',
-          message: `"${payload.nome}" foi adicionado com sucesso.`
-        });
+        try {
+          await produtosApi.post('/produtos', payload);
+          onToast({
+            type: 'success',
+            title: 'Produto Cadastrado',
+            message: `"${payload.nome}" foi adicionado com sucesso.`
+          });
+        } catch (err) {
+          console.warn('[frontend] ms-produtos offline. Acionando Store-and-Forward no Barramento de Eventos...');
+          const id = typeof crypto.randomUUID === 'function' 
+            ? crypto.randomUUID() 
+            : 'prod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8);
+          
+          const novoProduto = { id, ...payload };
+          await brokerApi.post('/publish', {
+            topic: 'produtos',
+            event: 'PRODUTO_CRIAR_COMANDO',
+            payload: novoProduto
+          });
+
+          onToast({
+            type: 'warning',
+            title: 'Produto Enfileirado (Store-and-Forward)',
+            message: `O ms-produtos está offline! O produto "${payload.nome}" foi enfileirado no Barramento, já está visível e será gravado no SQLite oficial assim que o serviço voltar!`
+          });
+          await new Promise(r => setTimeout(r, 150));
+        }
       }
       onSalvo();
       onClose();
-    } catch (err) {
-      console.error('Erro ao salvar produto:', err);
-      const mensagem = err.response?.data?.error || 'Não foi possível salvar o produto. Verifique a conexão com o ms-produtos (:3001).';
+    } catch (finalErr) {
+      console.error('Erro ao salvar produto:', finalErr);
+      const mensagem = finalErr.response?.data?.error || 'Não foi possível salvar o produto nem via ms-produtos nem via Barramento de Eventos.';
       setErro(mensagem);
     } finally {
       setSalvando(false);

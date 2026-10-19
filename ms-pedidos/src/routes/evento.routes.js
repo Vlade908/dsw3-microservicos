@@ -32,7 +32,7 @@ router.post('/', async (req, res) => {
         });
       }
       console.log(`[ms-pedidos] Cache local sincronizado: ${payload.length} produtos gravados.`);
-    } else if (event === 'PRODUTO_CRIADO' || event === 'PRODUTO_ATUALIZADO') {
+    } else if (event === 'PRODUTO_CRIADO' || event === 'PRODUTO_ATUALIZADO' || event === 'PRODUTO_CRIAR_COMANDO' || event === 'PRODUTO_ATUALIZAR_COMANDO') {
       const prod = payload;
       await prisma.produtoCache.upsert({
         where: { id: prod.id },
@@ -58,7 +58,7 @@ router.post('/', async (req, res) => {
         data: { estoque: prod.estoque }
       });
       console.log(`[ms-pedidos] Cache local: saldo de estoque atualizado para o item ${prod.id} -> ${prod.estoque}`);
-    } else if (event === 'PRODUTO_EXCLUIDO') {
+    } else if (event === 'PRODUTO_EXCLUIDO' || event === 'PRODUTO_EXCLUIR_COMANDO') {
       await prisma.produtoCache.deleteMany({
         where: { id: payload.id }
       });

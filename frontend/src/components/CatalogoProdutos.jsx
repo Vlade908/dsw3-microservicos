@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, Plus, RefreshCw, AlertCircle, PackageX, SlidersHorizontal, Check } from 'lucide-react';
 import CardProduto from './CardProduto';
 import ModalProduto from './ModalProduto';
-import { produtosApi } from '../services/api';
+import { produtosApi, brokerApi } from '../services/api';
 
 export default function CatalogoProdutos({
   produtos,
@@ -62,13 +62,28 @@ export default function CatalogoProdutos({
       });
       onRecarregar();
     } catch (err) {
-      console.error('Erro ao excluir produto:', err);
-      const mensagem = err.response?.data?.error || 'Não foi possível excluir o produto. Verifique a conexão com o ms-produtos (:3001).';
-      onToast({
-        type: 'error',
-        title: 'Falha na Exclusão',
-        message: mensagem
-      });
+      console.warn('[frontend] ms-produtos offline. Publicando exclusão no Barramento...');
+      try {
+        await brokerApi.post('/publish', {
+          topic: 'produtos',
+          event: 'PRODUTO_EXCLUIR_COMANDO',
+          payload: { id }
+        });
+        onToast({
+          type: 'warning',
+          title: 'Exclusão Enfileirada (Modo Resiliente)',
+          message: `ms-produtos offline! O produto "${nome}" foi removido da vitrine e será excluído do SQLite assim que o container voltar.`
+        });
+        await new Promise(r => setTimeout(r, 150));
+        onRecarregar();
+      } catch (finalErr) {
+        console.error('Erro ao excluir produto:', finalErr);
+        onToast({
+          type: 'error',
+          title: 'Falha na Exclusão',
+          message: 'Não foi possível excluir o produto nem via ms-produtos nem via Barramento.'
+        });
+      }
     }
   }
 

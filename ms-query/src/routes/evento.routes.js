@@ -33,7 +33,7 @@ router.post('/', async (req, res) => {
         });
       }
       console.log(`[ms-query] Projeção de produtos sincronizada: ${payload.length} itens.`);
-    } else if (event === 'PRODUTO_CRIADO' || event === 'PRODUTO_ATUALIZADO') {
+    } else if (event === 'PRODUTO_CRIADO' || event === 'PRODUTO_ATUALIZADO' || event === 'PRODUTO_CRIAR_COMANDO' || event === 'PRODUTO_ATUALIZAR_COMANDO') {
       const p = payload;
       await prisma.queryProduto.upsert({
         where: { id: p.id },
@@ -59,7 +59,7 @@ router.post('/', async (req, res) => {
         data: { estoque: p.estoque }
       });
       console.log(`[ms-query] Projeção: estoque atualizado do item ${p.id} -> ${p.estoque}`);
-    } else if (event === 'PRODUTO_EXCLUIDO') {
+    } else if (event === 'PRODUTO_EXCLUIDO' || event === 'PRODUTO_EXCLUIR_COMANDO') {
       await prisma.queryProduto.deleteMany({
         where: { id: payload.id }
       });

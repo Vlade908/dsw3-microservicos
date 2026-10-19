@@ -9,7 +9,8 @@ export const brokerClient = {
    */
   async iniciar() {
     try {
-      const response = await fetch(`${BROKER_URL}/subscribe`, {
+      // 1. Assinar tópico de pedidos para baixa e estorno de estoque
+      const resPedidos = await fetch(`${BROKER_URL}/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -19,8 +20,19 @@ export const brokerClient = {
         })
       });
 
-      if (response.ok) {
-        console.log(`[ms-produtos] Inscrito com sucesso no broker (${BROKER_URL}) para o tópico "pedidos"`);
+      // 2. Assinar tópico de produtos para comandos offline (Store-and-Forward)
+      const resProdutos = await fetch(`${BROKER_URL}/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscriberId: 'ms-produtos-sync',
+          topic: 'produtos',
+          webhookUrl: `${SERVICE_URL}/eventos`
+        })
+      });
+
+      if (resPedidos.ok && resProdutos.ok) {
+        console.log(`[ms-produtos] Inscrito com sucesso no broker (${BROKER_URL}) para tópicos "pedidos" e "produtos"`);
         // Sincronizar catálogo para alimentar o cache do ms-pedidos
         this.sincronizarCatalogo();
       }

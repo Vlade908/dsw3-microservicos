@@ -86,10 +86,13 @@ export default function App() {
       // 1. Tentar consultar no Query Service (ms-query :3004)
       try {
         const queryRes = await queryApi.get('/query/produtos');
-        if (Array.isArray(queryRes.data) && queryRes.data.length > 0) {
+        if (Array.isArray(queryRes.data)) {
           setProdutos(queryRes.data);
           setUsandoCacheProdutos(true);
           setErroProdutos(null);
+          try {
+            localStorage.setItem('dsw3_produtos_cache', JSON.stringify(queryRes.data));
+          } catch (_) {}
           console.log('[frontend] RESILIÊNCIA CQRS: Catálogo obtido via ms-query (:3004).');
           return;
         }
