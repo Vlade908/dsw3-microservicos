@@ -12,7 +12,15 @@ model Produto {
   nome      String
   preco     Float
   descricao String?
+  imagemUrl String?
   estoque   Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Registro de idempotência para consumo de eventos at-least-once (Inbox Pattern)
+model EventoProcessado {
+  id          String   @id
+  event       String
+  processedAt DateTime @default(now())
 }

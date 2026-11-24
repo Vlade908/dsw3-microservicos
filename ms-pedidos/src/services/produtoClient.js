@@ -13,10 +13,11 @@ const httpClient = axios.create({
  */
 export const produtoClient = {
   /**
-   * Buscar detalhes do produto no catálogo ativo ou no Cache Local Replicado
-   * @param {string} produtoId 
+   * Buscar detalhes do produto no catálogo ativo (HTTP síncrono) ou no Cache Local Replicado
+   * @param {string} produtoId
+   * @param {{ strict?: boolean }} options
    */
-  async obterProdutoPorId(produtoId) {
+  async obterProdutoPorId(produtoId, { strict = false } = {}) {
     try {
       const response = await httpClient.get(`/produtos/${produtoId}`);
       const produto = response.data;
@@ -29,13 +30,15 @@ export const produtoClient = {
           nome: produto.nome,
           preco: Number(produto.preco),
           estoque: produto.estoque,
-          descricao: produto.descricao || null
+          descricao: produto.descricao || null,
+          imagemUrl: produto.imagemUrl || null
         },
         update: {
           nome: produto.nome,
           preco: Number(produto.preco),
           estoque: produto.estoque,
-          descricao: produto.descricao || null
+          descricao: produto.descricao || null,
+          imagemUrl: produto.imagemUrl || null
         }
       }).catch(err => {
         console.warn('[ms-pedidos] Aviso ao atualizar ProdutoCache:', err.message);
@@ -44,6 +47,8 @@ export const produtoClient = {
       return { success: true, data: produto, fromCache: false };
     } catch (error) {
       if (error.response && error.response.status === 404) {
+        // Remove item obsoleto do cache local caso tenha sido excluído no catálogo oficial
+        prisma.produtoCache.deleteMany({ where: { id: produtoId } }).catch(() => {});
         return {
           success: false,
           status: 404,
@@ -51,53 +56,73 @@ export const produtoClient = {
         };
       }
 
-      // Falha de rede, timeout ou ms-produtos offline: acionar Fallback do Cache Local
-      console.warn(`[ms-pedidos] ms-produtos indisponível (${error.code || error.message}). Consultando Cache Local Replicado...`);
-      try {
-        const cached = await prisma.produtoCache.findUnique({ where: { id: produtoId } });
-        if (cached) {
-          console.log(`[ms-pedidos] RESILIÊNCIA ATIVA: Utilizando dados de "${cached.nome}" do Cache Local do ms-pedidos.`);
-          return { success: true, data: cached, fromCache: true };
+      const allowFallback = !strict && process.env.USE_CACHE_FALLBACK !== 'false';
+      if (allowFallback) {
+        // Falha de rede, timeout ou ms-produtos offline: acionar Fallback do Cache Local
+        console.warn(`[ms-pedidos] ms-produtos indisponível (${error.code || error.message}). Consultando Cache Local Replicado...`);
+        try {
+          const cached = await prisma.produtoCache.findUnique({ where: { id: produtoId } });
+          if (cached) {
+            console.log(`[ms-pedidos] RESILIÊNCIA ATIVA: Utilizando dados de "${cached.nome}" do Cache Local do ms-pedidos.`);
+            return { success: true, data: cached, fromCache: true };
+          }
+        } catch (cacheErr) {
+          console.error('[ms-pedidos] Erro ao consultar cache local:', cacheErr);
         }
-      } catch (cacheErr) {
-        console.error('[ms-pedidos] Erro ao consultar cache local:', cacheErr);
       }
 
-      // Se não estiver nem no catálogo remoto nem no cache local
+      // Em modo síncrono estrito ou se não estiver nem no catálogo remoto nem no cache local
       return {
         success: false,
         status: 503,
-        error: 'Serviço de Produtos temporariamente indisponível e item não encontrado no cache local.'
+        error: strict
+          ? 'Serviço de Produtos indisponível para validação síncrona estrita.'
+          : 'Serviço de Produtos temporariamente indisponível e item não encontrado no cache local.'
       };
     }
   },
 
   /**
-   * Atualizar estoque do produto após confirmação de venda (compatibilidade direta)
+   * Reservar/decrementar estoque do produto de forma síncrona e idempotente
    */
-  async decrementarEstoque(produtoId, quantidade) {
+  async decrementarEstoque(produtoId, quantidade, idempotencyKey) {
     try {
-      await httpClient.patch(`/produtos/${produtoId}/estoque`, {
+      const response = await httpClient.patch(`/produtos/${produtoId}/estoque`, {
         quantidade,
-        operacao: 'subtrair'
+        operacao: 'subtrair',
+        idempotencyKey
       });
-      return { success: true };
+      return { success: true, data: response.data };
     } catch (error) {
+      if (error.response && (error.response.status === 400 || error.response.status === 404)) {
+        return {
+          success: false,
+          businessError: true,
+          status: error.response.status,
+          error: error.response.data?.error || 'Erro de validação ao reservar estoque.'
+        };
+      }
       console.warn(`[ms-pedidos] Aviso ao atualizar estoque no ms-produtos via HTTP (${error.message}). O broker cuidará da entrega garantida.`);
-      return { success: false, error: error.message };
+      return {
+        success: false,
+        businessError: false,
+        status: 503,
+        error: error.message
+      };
     }
   },
 
   /**
-   * Estornar estoque do produto após cancelamento de pedido (compatibilidade direta)
+   * Estornar estoque do produto após cancelamento ou compensação (Saga)
    */
-  async incrementarEstoque(produtoId, quantidade) {
+  async incrementarEstoque(produtoId, quantidade, idempotencyKey) {
     try {
-      await httpClient.patch(`/produtos/${produtoId}/estoque`, {
+      const response = await httpClient.patch(`/produtos/${produtoId}/estoque`, {
         quantidade,
-        operacao: 'adicionar'
+        operacao: 'adicionar',
+        idempotencyKey
       });
-      return { success: true };
+      return { success: true, data: response.data };
     } catch (error) {
       console.warn(`[ms-pedidos] Aviso ao estornar estoque no ms-produtos via HTTP (${error.message}). O broker cuidará da entrega garantida.`);
       return { success: false, error: error.message };

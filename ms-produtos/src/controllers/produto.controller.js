@@ -7,7 +7,7 @@ import brokerClient from '../services/brokerClient.js';
  */
 export async function cadastrarProduto(req, res) {
   try {
-    const { nome, preco, descricao, estoque } = req.body;
+    const { nome, preco, descricao, imagemUrl, estoque } = req.body;
 
     if (!nome || typeof nome !== 'string' || nome.trim() === '') {
       return res.status(400).json({ error: 'O campo "nome" é obrigatório.' });
@@ -21,11 +21,15 @@ export async function cadastrarProduto(req, res) {
       return res.status(400).json({ error: 'O campo "estoque" deve ser um número inteiro maior ou igual a zero.' });
     }
 
+    const imagemSanitizada =
+      typeof imagemUrl === 'string' && imagemUrl.trim() !== '' ? imagemUrl.trim() : null;
+
     const novoProduto = await prisma.produto.create({
       data: {
         nome: nome.trim(),
         preco,
         descricao: descricao ? descricao.trim() : null,
+        imagemUrl: imagemSanitizada,
         estoque
       },
       select: {
@@ -33,6 +37,7 @@ export async function cadastrarProduto(req, res) {
         nome: true,
         preco: true,
         descricao: true,
+        imagemUrl: true,
         estoque: true
       }
     });
@@ -59,6 +64,7 @@ export async function listarProdutos(req, res) {
         nome: true,
         preco: true,
         descricao: true,
+        imagemUrl: true,
         estoque: true
       },
       orderBy: {
@@ -88,6 +94,7 @@ export async function buscarProdutoPorId(req, res) {
         nome: true,
         preco: true,
         descricao: true,
+        imagemUrl: true,
         estoque: true
       }
     });
@@ -110,46 +117,93 @@ export async function buscarProdutoPorId(req, res) {
 export async function atualizarEstoqueProduto(req, res) {
   try {
     const { id } = req.params;
-    const { quantidade, operacao = 'subtrair' } = req.body;
+    const { quantidade, operacao = 'subtrair', idempotencyKey } = req.body;
 
-    if (!quantidade || typeof quantidade !== 'number' || quantidade <= 0) {
+    if (!quantidade || typeof quantidade !== 'number' || quantidade <= 0 || !Number.isInteger(quantidade)) {
       return res.status(400).json({ error: 'Quantidade inválida para atualização de estoque.' });
     }
 
-    const produto = await prisma.produto.findUnique({ where: { id } });
-    if (!produto) {
-      return res.status(404).json({ error: 'Produto não encontrado.' });
+    if (operacao !== 'subtrair' && operacao !== 'adicionar') {
+      return res.status(400).json({ error: 'Operação de estoque inválida. Use "subtrair" ou "adicionar".' });
     }
 
-    let novoEstoque = produto.estoque;
-    if (operacao === 'subtrair') {
-      if (produto.estoque < quantidade) {
-        return res.status(400).json({
-          error: `Quantidade solicitada excede o estoque disponível (Disponível: ${produto.estoque}).`
+    const selectProduto = {
+      id: true,
+      nome: true,
+      preco: true,
+      descricao: true,
+      imagemUrl: true,
+      estoque: true
+    };
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      if (idempotencyKey) {
+        const jaProcessado = await tx.eventoProcessado.findUnique({
+          where: { id: String(idempotencyKey) }
+        });
+        if (jaProcessado) {
+          const produtoExistente = await tx.produto.findUnique({
+            where: { id },
+            select: selectProduto
+          });
+          if (!produtoExistente) {
+            throw { status: 404, message: 'Produto não encontrado.' };
+          }
+          return { alreadyProcessed: true, produto: produtoExistente };
+        }
+      }
+
+      const produto = await tx.produto.findUnique({ where: { id } });
+      if (!produto) {
+        throw { status: 404, message: 'Produto não encontrado.' };
+      }
+
+      let novoEstoque = produto.estoque;
+      if (operacao === 'subtrair') {
+        if (produto.estoque < quantidade) {
+          throw {
+            status: 400,
+            message: `Quantidade solicitada excede o estoque disponível (Disponível: ${produto.estoque}).`
+          };
+        }
+        novoEstoque -= quantidade;
+      } else {
+        novoEstoque += quantidade;
+      }
+
+      const produtoAtualizado = await tx.produto.update({
+        where: { id },
+        data: { estoque: novoEstoque },
+        select: selectProduto
+      });
+
+      if (idempotencyKey) {
+        await tx.eventoProcessado.create({
+          data: {
+            id: String(idempotencyKey),
+            event: operacao === 'subtrair' ? 'PEDIDO_BAIXA' : 'PEDIDO_ESTORNO'
+          }
         });
       }
-      novoEstoque -= quantidade;
-    } else if (operacao === 'adicionar') {
-      novoEstoque += quantidade;
-    }
 
-    const produtoAtualizado = await prisma.produto.update({
-      where: { id },
-      data: { estoque: novoEstoque },
-      select: {
-        id: true,
-        nome: true,
-        preco: true,
-        descricao: true,
-        estoque: true
-      }
+      return { alreadyProcessed: false, produto: produtoAtualizado };
     });
 
-    // Notificar broker sobre a alteração de estoque
-    brokerClient.publicarEvento('produtos', 'ESTOQUE_ATUALIZADO', produtoAtualizado);
+    if (!resultado.alreadyProcessed) {
+      // Notificar broker sobre a alteração de estoque com chave causal para deduplicação
+      brokerClient.publicarEvento('produtos', 'ESTOQUE_ATUALIZADO', {
+        ...resultado.produto,
+        causaKey: idempotencyKey ? String(idempotencyKey) : null
+      });
+    } else {
+      console.log(`[ms-produtos] Operação de estoque ignorada por idempotência (key=${idempotencyKey}).`);
+    }
 
-    return res.status(200).json(produtoAtualizado);
+    return res.status(200).json(resultado.produto);
   } catch (error) {
+    if (error && error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('[ms-produtos] Erro ao atualizar estoque:', error);
     return res.status(500).json({ error: 'Erro interno ao atualizar estoque.' });
   }
@@ -162,7 +216,7 @@ export async function atualizarEstoqueProduto(req, res) {
 export async function atualizarProduto(req, res) {
   try {
     const { id } = req.params;
-    const { nome, preco, descricao, estoque } = req.body;
+    const { nome, preco, descricao, imagemUrl, estoque } = req.body;
 
     const produtoExistente = await prisma.produto.findUnique({ where: { id } });
     if (!produtoExistente) {
@@ -181,12 +235,20 @@ export async function atualizarProduto(req, res) {
       return res.status(400).json({ error: 'O campo "estoque" deve ser um número inteiro maior ou igual a zero.' });
     }
 
+    const imagemSanitizada =
+      imagemUrl !== undefined
+        ? typeof imagemUrl === 'string' && imagemUrl.trim() !== ''
+          ? imagemUrl.trim()
+          : null
+        : produtoExistente.imagemUrl;
+
     const produtoAtualizado = await prisma.produto.update({
       where: { id },
       data: {
         nome: nome !== undefined ? nome.trim() : produtoExistente.nome,
         preco: preco !== undefined ? preco : produtoExistente.preco,
         descricao: descricao !== undefined ? (descricao ? descricao.trim() : null) : produtoExistente.descricao,
+        imagemUrl: imagemSanitizada,
         estoque: estoque !== undefined ? estoque : produtoExistente.estoque
       },
       select: {
@@ -194,6 +256,7 @@ export async function atualizarProduto(req, res) {
         nome: true,
         preco: true,
         descricao: true,
+        imagemUrl: true,
         estoque: true
       }
     });

@@ -148,7 +148,8 @@ async function processQueue() {
   isDispatching = true;
 
   try {
-    for (const ev of events) {
+    // Processa em ordem cronológica FIFO (events usa unshift para manter mais recentes no topo do painel)
+    for (const ev of [...events].reverse()) {
       for (const [subId, delivery] of Object.entries(ev.deliveries)) {
         if (delivery.status === 'DELIVERED') continue;
 

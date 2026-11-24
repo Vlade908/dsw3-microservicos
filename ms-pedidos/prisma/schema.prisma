@@ -25,6 +25,14 @@ model ProdutoCache {
   preco     Float
   estoque   Int
   descricao String?
+  imagemUrl String?
   updatedAt DateTime @updatedAt
+}
+
+// Registro de idempotência para consumo de eventos at-least-once (Inbox Pattern)
+model EventoProcessado {
+  id          String   @id
+  event       String
+  processedAt DateTime @default(now())
 }
 

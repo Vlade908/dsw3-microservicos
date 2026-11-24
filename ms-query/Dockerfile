@@ -15,4 +15,4 @@ RUN npx prisma db push
 
 EXPOSE 3004
 
-CMD ["node", "src/server.js"]
+CMD ["sh", "-c", "npx prisma db push && node src/server.js"]

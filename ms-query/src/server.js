@@ -101,7 +101,7 @@ app.get('/', async (req, res) => {
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <span class="text-slate-400 uppercase font-bold text-[10px]">Faturamento Consolidado</span>
         <div class="text-2xl font-extrabold text-emerald-400 mt-1">R$ ${totalFaturado.toFixed(2)}</div>
-        <span class="text-slate-500 text-[10px]">Aprovados (Snapshot)</span>
+        <span class="text-slate-500 text-[10px]">Realizados (Snapshot)</span>
       </div>
     </div>
 

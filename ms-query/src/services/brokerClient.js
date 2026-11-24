@@ -61,13 +61,15 @@ export const brokerClient = {
                 nome: p.nome,
                 preco: Number(p.preco),
                 estoque: p.estoque,
-                descricao: p.descricao || null
+                descricao: p.descricao || null,
+                imagemUrl: p.imagemUrl || null
               },
               update: {
                 nome: p.nome,
                 preco: Number(p.preco),
                 estoque: p.estoque,
-                descricao: p.descricao || null
+                descricao: p.descricao || null,
+                imagemUrl: p.imagemUrl || null
               }
             });
           }

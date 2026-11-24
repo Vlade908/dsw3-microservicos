@@ -9,18 +9,29 @@ export const brokerClient = {
    */
   async iniciar() {
     try {
-      const response = await fetch(`${BROKER_URL}/subscribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subscriberId: 'ms-pedidos',
-          topic: 'produtos',
-          webhookUrl: `${SERVICE_URL}/eventos`
+      const [resProdutos, resPedidos] = await Promise.all([
+        fetch(`${BROKER_URL}/subscribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscriberId: 'ms-pedidos',
+            topic: 'produtos',
+            webhookUrl: `${SERVICE_URL}/eventos`
+          })
+        }),
+        fetch(`${BROKER_URL}/subscribe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscriberId: 'ms-pedidos-sync',
+            topic: 'pedidos',
+            webhookUrl: `${SERVICE_URL}/eventos`
+          })
         })
-      });
+      ]);
 
-      if (response.ok) {
-        console.log(`[ms-pedidos] Inscrito com sucesso no broker (${BROKER_URL}) para o tópico "produtos"`);
+      if (resProdutos.ok && resPedidos.ok) {
+        console.log(`[ms-pedidos] Inscrito com sucesso no broker (${BROKER_URL}) para os tópicos "produtos" e "pedidos"`);
         this.sincronizarCacheInicial();
       }
     } catch (err) {
@@ -48,13 +59,15 @@ export const brokerClient = {
                 nome: prod.nome,
                 preco: Number(prod.preco),
                 estoque: prod.estoque,
-                descricao: prod.descricao || null
+                descricao: prod.descricao || null,
+                imagemUrl: prod.imagemUrl || null
               },
               update: {
                 nome: prod.nome,
                 preco: Number(prod.preco),
                 estoque: prod.estoque,
-                descricao: prod.descricao || null
+                descricao: prod.descricao || null,
+                imagemUrl: prod.imagemUrl || null
               }
             });
           }

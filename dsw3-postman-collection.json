@@ -247,6 +247,37 @@
           "response": []
         },
         {
+          "name": "POST /pedidos - Erro 503 (Modo Síncrono Estrito com ms-produtos Offline)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Sync-Strict",
+                "value": "true"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"produtoId\": \"{{produto_id}}\",\n  \"quantidade\": 1\n}"
+            },
+            "url": {
+              "raw": "{{pedidos_url}}/pedidos",
+              "host": [
+                "{{pedidos_url}}"
+              ],
+              "path": [
+                "pedidos"
+              ]
+            },
+            "description": "Valida o comportamento HTTP 503 Service Unavailable quando o ms-produtos está offline e o modo síncrono estrito (X-Sync-Strict: true) é exigido sem fallback de cache."
+          },
+          "response": []
+        },
+        {
           "name": "GET /pedidos - Listar Histórico de Pedidos",
           "request": {
             "method": "GET",

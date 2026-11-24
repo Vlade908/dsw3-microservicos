@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import prisma from '../database/prisma.js';
 import produtoClient from '../services/produtoClient.js';
 import brokerClient from '../services/brokerClient.js';
@@ -7,14 +8,15 @@ import brokerClient from '../services/brokerClient.js';
  * POST /pedidos
  * 
  * Executa comunicação síncrona com ms-produtos:
- * 1. Valida existência (404)
- * 2. Valida disponibilidade de estoque (400)
- * 3. Trata indisponibilidade do serviço remoto (503)
+ * 1. Valida existência (404) e disponibilidade de estoque (400)
+ * 2. Reserva estoque de forma síncrona (com idempotencyKey) e compensação Saga em caso de falha local
+ * 3. Suporta modo síncrono estrito (X-Sync-Strict: true -> 503) ou fallback resiliente via ProdutoCache
  * 4. Aplica o Snapshot Pattern (grava nome e preço imutáveis)
  */
 export async function criarPedido(req, res) {
   try {
     const { produtoId, quantidade } = req.body;
+    const strictMode = req.headers['x-sync-strict'] === 'true' || req.query.strict === 'true';
 
     if (!produtoId || typeof produtoId !== 'string' || produtoId.trim() === '') {
       return res.status(400).json({ error: 'O campo "produtoId" é obrigatório.' });
@@ -24,8 +26,8 @@ export async function criarPedido(req, res) {
       return res.status(400).json({ error: 'O campo "quantidade" deve ser um número inteiro maior que zero.' });
     }
 
-    // 1. Consulta síncrona HTTP ao ms-produtos
-    const consultaProduto = await produtoClient.obterProdutoPorId(produtoId.trim());
+    // 1. Consulta síncrona HTTP ao ms-produtos (ou fallback de cache se permitido)
+    const consultaProduto = await produtoClient.obterProdutoPorId(produtoId.trim(), { strict: strictMode });
 
     if (!consultaProduto.success) {
       return res.status(consultaProduto.status).json({
@@ -42,51 +44,97 @@ export async function criarPedido(req, res) {
       });
     }
 
-    // 3. Execução do Snapshot Pattern
+    const pedidoId = uuidv4();
+    const causaKey = `PEDIDO_BAIXA:${pedidoId}`;
+
+    // 3. Reserva síncrona aguardada no ms-produtos quando online
+    let baixaSync = null;
+    if (!consultaProduto.fromCache) {
+      baixaSync = await produtoClient.decrementarEstoque(produto.id, quantidade, causaKey);
+
+      if (!baixaSync.success && baixaSync.businessError) {
+        return res.status(baixaSync.status).json({ error: baixaSync.error });
+      }
+
+      if (!baixaSync.success && strictMode) {
+        return res.status(503).json({
+          error: 'Falha ao confirmar baixa de estoque no ms-produtos em modo síncrono estrito.'
+        });
+      }
+    }
+
+    const estoqueJaAtualizado = Boolean(!consultaProduto.fromCache && baixaSync?.success);
+    const estoqueRestante = estoqueJaAtualizado && baixaSync.data
+      ? baixaSync.data.estoque
+      : Math.max(0, produto.estoque - quantidade);
+
+    // 4. Execução do Snapshot Pattern
     // Captura nomeProduto e precoUnitario oficiais no exato momento da transação
     const precoUnitario = Number(produto.preco);
     const valorTotal = Number((precoUnitario * quantidade).toFixed(2));
 
-    const novoPedido = await prisma.pedido.create({
-      data: {
-        produtoId: produto.id,
-        nomeProduto: produto.nome,
-        precoUnitario: precoUnitario,
-        quantidade,
-        valorTotal,
-        status: 'REALIZADO'
-      },
-      select: {
-        id: true,
-        produtoId: true,
-        nomeProduto: true,
-        precoUnitario: true,
-        quantidade: true,
-        valorTotal: true,
-        dataPedido: true,
-        status: true
+    let novoPedido;
+    try {
+      novoPedido = await prisma.pedido.create({
+        data: {
+          id: pedidoId,
+          produtoId: produto.id,
+          nomeProduto: produto.nome,
+          precoUnitario,
+          quantidade,
+          valorTotal,
+          status: 'REALIZADO'
+        },
+        select: {
+          id: true,
+          produtoId: true,
+          nomeProduto: true,
+          precoUnitario: true,
+          quantidade: true,
+          valorTotal: true,
+          dataPedido: true,
+          status: true
+        }
+      });
+    } catch (createErr) {
+      // Compensação Saga caso o estoque já tenha sido reservado no ms-produtos
+      if (estoqueJaAtualizado) {
+        await produtoClient.incrementarEstoque(
+          produto.id,
+          quantidade,
+          `PEDIDO_COMPENSACAO:${pedidoId}`
+        ).catch(() => {});
       }
-    });
+      throw createErr;
+    }
 
-    // 4. Atualizar saldo no Cache Local do ms-pedidos (garante consistência local imediata)
-    prisma.produtoCache.updateMany({
-      where: { id: produto.id },
-      data: { estoque: Math.max(0, produto.estoque - quantidade) }
-    }).catch(() => {});
+    // 5. Atualizar saldo no Cache Local do ms-pedidos e registrar idempotência causal
+    await prisma.$transaction([
+      prisma.produtoCache.updateMany({
+        where: { id: produto.id },
+        data: { estoque: estoqueRestante }
+      }),
+      prisma.eventoProcessado.upsert({
+        where: { id: causaKey },
+        create: { id: causaKey, event: 'PEDIDO_CRIADO' },
+        update: {}
+      })
+    ]).catch(() => {});
 
-    // 5. Publicação garantida no Barramento de Eventos (Event Broker)
-    // Se o ms-produtos estiver offline, o broker reterá o evento até sua recuperação
+    // 6. Publicação garantida no Barramento de Eventos (Event Broker) com snapshot completo
     brokerClient.publicarEvento('pedidos', 'PEDIDO_CRIADO', {
       pedidoId: novoPedido.id,
-      produtoId: produto.id,
-      quantidade,
-      precoUnitario,
-      valorTotal
+      produtoId: novoPedido.produtoId,
+      nomeProduto: novoPedido.nomeProduto,
+      precoUnitario: novoPedido.precoUnitario,
+      quantidade: novoPedido.quantidade,
+      valorTotal: novoPedido.valorTotal,
+      dataPedido: novoPedido.dataPedido,
+      status: novoPedido.status,
+      estoqueJaAtualizado
     });
 
-    // 6. Chamada direta de compatibilidade (não-bloqueante)
-    produtoClient.decrementarEstoque(produto.id, quantidade).catch(() => {});
-
+    res.setHeader('X-Validation-Mode', consultaProduto.fromCache ? 'cache-fallback' : 'sync-http');
     return res.status(201).json(novoPedido);
   } catch (error) {
     console.error('[ms-pedidos] Erro ao processar pedido:', error);
@@ -188,24 +236,42 @@ export async function cancelarPedido(req, res) {
       }
     });
 
-    // Recompõe o estoque no Cache Local do ms-pedidos
+    const causaKey = `PEDIDO_ESTORNO:${pedido.id}`;
+
+    // Tentativa síncrona idempotente de estorno no ms-produtos
+    const estornoSync = await produtoClient.incrementarEstoque(
+      pedido.produtoId,
+      pedido.quantidade,
+      causaKey
+    );
+
+    // Recompõe o estoque no Cache Local do ms-pedidos e registra idempotência causal
     const cached = await prisma.produtoCache.findUnique({ where: { id: pedido.produtoId } });
-    if (cached) {
-      await prisma.produtoCache.update({
-        where: { id: pedido.produtoId },
-        data: { estoque: cached.estoque + pedido.quantidade }
-      });
-    }
+    const estoqueAtualizadoCache = estornoSync.success && estornoSync.data
+      ? estornoSync.data.estoque
+      : (cached ? cached.estoque + pedido.quantidade : null);
+
+    await prisma.$transaction([
+      ...(cached && estoqueAtualizadoCache !== null
+        ? [prisma.produtoCache.update({
+            where: { id: pedido.produtoId },
+            data: { estoque: estoqueAtualizadoCache }
+          })]
+        : []),
+      prisma.eventoProcessado.upsert({
+        where: { id: causaKey },
+        create: { id: causaKey, event: 'PEDIDO_CANCELADO' },
+        update: {}
+      })
+    ]).catch(() => {});
 
     // Publicação assíncrona do cancelamento no Event Broker
     brokerClient.publicarEvento('pedidos', 'PEDIDO_CANCELADO', {
       pedidoId: pedido.id,
       produtoId: pedido.produtoId,
-      quantidade: pedido.quantidade
+      quantidade: pedido.quantidade,
+      estoqueJaAtualizado: estornoSync.success
     });
-
-    // Tentativa direta HTTP de estorno (não-bloqueante)
-    produtoClient.incrementarEstoque(pedido.produtoId, pedido.quantidade).catch(() => {});
 
     return res.status(200).json(pedidoAtualizado);
   } catch (error) {

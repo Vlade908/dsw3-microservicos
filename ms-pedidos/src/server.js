@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
 
-app.use(cors({ origin: CORS_ORIGIN }));
+app.use(cors({ origin: CORS_ORIGIN, exposedHeaders: ['X-Validation-Mode'] }));
 app.use(express.json());
 
 // Endpoint de Health Check
