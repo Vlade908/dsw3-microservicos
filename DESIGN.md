@@ -1,102 +1,35 @@
 ---
-name: DSW3 Microserviços
-description: Sistema distribuído de catálogo e pedidos no modo Operate com resiliência visual e snapshot pattern.
-colors:
-  primary: "#2563eb"
-  primary-hover: "#1d4ed8"
-  primary-subtle: "#eff6ff"
-  slate-dark: "#0f172a"
-  slate-body: "#334155"
-  slate-muted: "#64748b"
-  slate-border: "#e2e8f0"
-  surface-bg: "#f8fafc"
-  surface-card: "#ffffff"
-  status-success-bg: "#ecfdf5"
-  status-success-text: "#065f46"
-  status-success-border: "#a7f3d0"
-  status-danger-bg: "#fff1f2"
-  status-danger-text: "#9f1239"
-  status-danger-border: "#fecdd3"
-  status-warning-bg: "#fffbeb"
-  status-warning-text: "#92400e"
-  status-warning-border: "#fde68a"
-typography:
-  display:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
-    fontSize: "1.5rem"
-    fontWeight: 700
-    lineHeight: 1.25
-  heading:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
-    fontSize: "1.125rem"
-    fontWeight: 700
-    lineHeight: 1.35
-  body:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
-    fontSize: "0.875rem"
-    fontWeight: 400
-    lineHeight: 1.5
-  tabular:
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-    fontSize: "0.875rem"
-    fontWeight: 600
-rounded:
-  sm: "8px"
-  md: "12px"
-  lg: "16px"
-  full: "9999px"
-spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "16px"
-  lg: "24px"
-  xl: "32px"
-components:
-  button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "#ffffff"
-    rounded: "{rounded.md}"
-    padding: "10px 16px"
-  button-primary-hover:
-    backgroundColor: "{colors.primary-hover}"
+name: VERO Store — DSW3 Microserviços
+project_id: 16191531843625603381
+description: E-commerce flagship de hardware inspirado em Apple Store & Liquid Glass, com separação entre vitrine de compra e gestão de catálogo, comprovante imutável (Snapshot Pattern) e degradação graciosa via Event Broker e CQRS.
 ---
 
-# Design System — DSW3 Microserviços
+# Design System — VERO Store (Stitch Project `16191531843625603381`)
 
-## Overview
-Interface no modo **Operate** com foco em escaneabilidade de dados operacionais (catálogo, estoque e transações), visualização instantânea da topologia de rede/serviços e alta tolerância a falhas.
+## 1. Visual Theme & Atmosphere
+Interface editorial de varejo tecnológico inspirada em **Apple Store** com superfícies limpas, fotografia de estúdio em pedestal claro e elementos translúcidos **Liquid Glass**. Separa claramente a jornada do comprador (Vitrine, Checkout Rápido, Meus Pedidos Master-Detail) da operação administrativa (`Gerenciar Loja`) e da observabilidade distribuída (`StatusServicosPopover`).
 
-## Colors
-- **Primária:** Azul Royal (`#2563eb`) e suas derivações sutis para foco e ações afirmativas.
-- **Neutros:** Tons de Slate (`slate-50` a `slate-900`) para separar camadas de elevação e evitar contraste excessivo com fundo puro.
-- **Semântica de Microsserviços:**
-  - Verde Esmeralda (`#059669` / `#ecfdf5`) para nós saudáveis e pedidos confirmados.
-  - Vermelho Rosa (`#e11d48` / `#fff1f2`) para serviços fora do ar ou cancelamentos.
-  - Âmbar (`#d97706` / `#fffbeb`) para advertências e estoques baixos.
+## 2. Color Palette & Roles
+- **Canvas Surface** (`#FAF8FE`) — Fundo base sereno da vitrine e listagens.
+- **Apple Clean Background** (`#FBFBFD`) — Fundo do fluxo de Checkout Rápido.
+- **Pure Surface** (`#FFFFFF`) — Cartões principais, modal de cadastro e painel de comprovante.
+- **Surface Container Low** (`#F4F3F8` / `#F5F5F7`) — Pedestais de imagem, chips inativos, faixas de garantia e rodapé.
+- **On-Surface Ink** (`#1A1B1F` / `#1D1D1F`) — Títulos, preços principais e texto de alto contraste.
+- **Muted Variant** (`#414753` / `#86868B`) — Descrições, metadados e rótulos secundários.
+- **Primary Action** (`#0071E3` / hover `#0077ED` / profundo `#0059B5`) — Botões de conversão ("Comprar", "Finalizar Pedido", "Ver comprovante") e anéis de foco.
+- **Status Semânticos:**
+  - `REALIZADO` / Estoque disponível / Online: `#107C41` / `#1C7E2D` sobre `#EBF9EE`.
+  - `CANCELADO` / Esgotado / Offline: `#BA1A1A` / `#D70015` sobre `#FDF2F2`.
+  - Modo Contingência / Fila Segura / Estoque baixo: `#B41C00` / `#D97706` sobre `#FFDAD3` / `#FFFBEB`.
 
-## Typography
-- Tipografia base: **Inter**, sem serifa, limpa e legível em densidades compactas.
-- Números tabulares (`tabular-nums`) e fontes monoespaçadas para UUIDs de pedidos e valores financeiros em R$.
+## 3. Typography Rules
+- **Display & Headings:** `Plus Jakarta Sans` (weights 600–800, tracking levemente fechado).
+- **Body & UI:** `DM Sans` / `Inter` (weights 400–600).
+- **Technical & Financial Figures:** `JetBrains Mono` + `tabular-nums` para valores em R$, UUIDs de pedidos, timestamps e portas dos microsserviços.
 
-## Layout
-- Shell de aplicação com navegação superior sticky, monitor de conectividade persistente e corpo centralizado com limite de largura (`max-w-7xl`).
-- Grid responsivo dinâmico: 1 coluna em mobile, 2 em tablet e 3 colunas em telas desktop.
-
-## Elevation & Depth
-- Sombras suaves com dispersão natural (`shadow-sm`, `shadow-md`), sem halos duros.
-- Camada de backdrop blur em modais e notificações com fundo semi-opaco.
-
-## Shapes
-- Raio de curvatura consistente (`rounded-xl` / `rounded-2xl`) em cartões e botões, conferindo toque contemporâneo.
-
-## Components
-- **CardProduto:** Unidade autônoma de catálogo com informações de preço, status de estoque em tempo real e ações de CRUD.
-- **FormularioPedido:** Formulário com validação local reativa de saldo e resumo do Snapshot Pattern.
-- **HistoricoPedidos:** Tabela densa com valores congelados e controle de cancelamento com estorno.
-- **Monitor de Serviços:** Pílula informativa fixa reportando a saúde das portas 3001 e 3002.
-
-## Do's and Don'ts
-- **DO:** Usar `tabular-nums` para tabelas financeiras e contadores.
-- **DO:** Destacar a imutabilidade do Snapshot Pattern na interface.
-- **DON'T:** Usar texto cinza sobre fundos coloridos (regra Impeccable `gray-on-color`).
-- **DON'T:** Apresentar telas brancas em falhas de rede — sempre renderizar a casca e avisar com degradação graciosa.
+## 4. Telas Implementadas a partir do Stitch
+1. **Vitrine (`CatalogoProdutos` + `CardProduto`)**: Sub-nav sticky por categoria, Hero Flagship Spotlight, barra de confiança de 4 pilares, grid de produtos com foto de estúdio, seção editorial de engenharia e newsletter.
+2. **Checkout Rápido (`FormularioPedido`)**: Layout assimétrico 2 colunas (seletor de produto, quantidade editável com validação local e bloco de Preço Travado por Snapshot à esquerda; Resumo sticky à direita) + confirmação Peak-End pós-compra.
+3. **Meus Pedidos (`HistoricoPedidos`)**: Layout Master-Detail (lista filtrável por `Todos` / `Realizados` / `Cancelados` à esquerda e `Comprovante Oficial` imutável sticky à direita) + modal limpo de cancelamento com estorno.
+4. **Gerenciar Loja (`GerenciarLoja` + `ModalProduto`)**: Sub-header contextual de gestão, lista industrial de catálogo com saldo de estoque em tempo real, edição/exclusão (com Store-and-Forward) e modal Apple-style de produto.
+5. **Contingência Graciosa (`App` + `StatusServicosPopover` + `Footer`)**: Banner de fila segura não-bloqueante no topo quando há indisponibilidade + indicador persistente no rodapé que expande o painel ao vivo dos 4 nós (`ms-produtos :3001`, `ms-pedidos :3002`, `event-broker :3003`, `ms-query :3004`).

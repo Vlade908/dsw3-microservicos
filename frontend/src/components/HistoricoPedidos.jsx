@@ -1,44 +1,90 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  Receipt, 
-  RefreshCw, 
-  AlertCircle, 
-  Ban, 
-  CheckCircle2, 
-  Lock, 
-  Copy, 
-  Check, 
-  Eye, 
-  X, 
-  ShieldCheck, 
-  Calendar, 
-  ShoppingBag,
-  Clock
+import {
+  Receipt,
+  RefreshCw,
+  AlertCircle,
+  Copy,
+  Check,
+  Lock,
+  ShieldCheck,
+  ChevronRight,
+  Search,
+  Printer,
+  Ban,
+  Info
 } from 'lucide-react';
-import { pedidosApi, formatarPreco, formatarData } from '../services/api';
+import ProdutoAvatar from './ProdutoAvatar';
+import { pedidosApi, brokerApi, formatarPreco, formatarData } from '../services/api';
 
 export default function HistoricoPedidos({
   pedidos,
+  produtos = [],
   loading,
   erro,
   onRecarregar,
+  onVoltarVitrine,
   onToast
 }) {
+  const [filtroStatus, setFiltroStatus] = useState('todos'); // 'todos', 'REALIZADO', 'CANCELADO'
+  const [buscaPedido, setBuscaPedido] = useState('');
+  const [pedidoSelecionadoId, setPedidoSelecionadoId] = useState(null);
+  const [pedidoParaCancelar, setPedidoParaCancelar] = useState(null);
   const [cancelandoId, setCancelandoId] = useState(null);
   const [copiadoId, setCopiadoId] = useState(null);
-  const [pedidoDetalhe, setPedidoDetalhe] = useState(null);
 
-  // Bloqueio de scroll do body e listener para ESC quando o modal estiver aberto
+  const produtosPorId = useMemo(() => {
+    const map = new Map();
+    for (const p of produtos) {
+      map.set(p.id, p);
+    }
+    return map;
+  }, [produtos]);
+
+  const totalRealizados = useMemo(
+    () => pedidos.filter((p) => p.status === 'REALIZADO').length,
+    [pedidos]
+  );
+  const totalCancelados = useMemo(
+    () => pedidos.filter((p) => p.status === 'CANCELADO').length,
+    [pedidos]
+  );
+  const totalFaturado = useMemo(
+    () =>
+      pedidos
+        .filter((p) => p.status === 'REALIZADO')
+        .reduce((acc, p) => acc + (p.valorTotal || 0), 0),
+    [pedidos]
+  );
+
+  const pedidosFiltrados = useMemo(() => {
+    const termo = buscaPedido.trim().toLowerCase();
+    return pedidos.filter((p) => {
+      const matchStatus = filtroStatus === 'todos' || p.status === filtroStatus;
+      const matchBusca =
+        !termo ||
+        p.id.toLowerCase().includes(termo) ||
+        p.produtoId.toLowerCase().includes(termo) ||
+        (p.nomeProduto && p.nomeProduto.toLowerCase().includes(termo));
+      return matchStatus && matchBusca;
+    });
+  }, [pedidos, filtroStatus, buscaPedido]);
+
+  const pedidoAtivo = useMemo(() => {
+    if (pedidosFiltrados.length === 0) return null;
+    return (
+      pedidosFiltrados.find((p) => p.id === pedidoSelecionadoId) || pedidosFiltrados[0]
+    );
+  }, [pedidosFiltrados, pedidoSelecionadoId]);
+
   useEffect(() => {
-    if (!pedidoDetalhe) return;
-
+    if (!pedidoParaCancelar) return;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     function handleKeyDown(e) {
       if (e.key === 'Escape') {
-        setPedidoDetalhe(null);
+        setPedidoParaCancelar(null);
       }
     }
 
@@ -47,16 +93,23 @@ export default function HistoricoPedidos({
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [pedidoDetalhe]);
+  }, [pedidoParaCancelar]);
 
-  async function handleCancelar(pedido) {
-    if (pedido.status === 'CANCELADO') return;
+  function copiarId(id, label = 'UUID do pedido copiado!') {
+    navigator.clipboard.writeText(id);
+    setCopiadoId(id);
+    onToast?.({
+      type: 'info',
+      title: 'Copiado',
+      message: label
+    });
+    setTimeout(() => setCopiadoId(null), 2000);
+  }
 
-    const confirmou = window.confirm(
-      `Confirmação de Cancelamento de Compra:\n\nDeseja cancelar o pedido de "${pedido.nomeProduto}"?\nA quantidade de ${pedido.quantidade} un. retornará automaticamente ao estoque no ms-produtos.`
-    );
-    if (!confirmou) return;
+  async function confirmarCancelamento() {
+    if (!pedidoParaCancelar || pedidoParaCancelar.status === 'CANCELADO') return;
 
+    const pedido = pedidoParaCancelar;
     setCancelandoId(pedido.id);
     try {
       await pedidosApi.patch(`/pedidos/${pedido.id}/cancelar`);
@@ -65,13 +118,42 @@ export default function HistoricoPedidos({
         title: 'Pedido Cancelado',
         message: `O pedido de "${pedido.nomeProduto}" foi cancelado e o estoque estornado com sucesso.`
       });
+      setPedidoParaCancelar(null);
       onRecarregar();
-      if (pedidoDetalhe?.id === pedido.id) {
-        setPedidoDetalhe((prev) => ({ ...prev, status: 'CANCELADO' }));
-      }
     } catch (err) {
       console.error('Erro ao cancelar pedido:', err);
-      const mensagem = err.response?.data?.error || 'Não foi possível cancelar o pedido. Verifique a conexão com o ms-pedidos (:3002).';
+      const isBusinessError =
+        err.response && (err.response.status === 400 || err.response.status === 404);
+
+      if (!isBusinessError && (!err.response || err.response.status >= 500)) {
+        try {
+          await brokerApi.post('/publish', {
+            topic: 'pedidos',
+            event: 'PEDIDO_CANCELAR_COMANDO',
+            payload: {
+              pedidoId: pedido.id,
+              produtoId: pedido.produtoId,
+              quantidade: pedido.quantidade,
+              estoqueJaAtualizado: false
+            }
+          });
+          onToast({
+            type: 'warning',
+            title: 'Cancelamento Enfileirado (Store-and-Forward)',
+            message: `ms-pedidos offline! O cancelamento de "${pedido.nomeProduto}" foi enfileirado no Event Broker (:3003) e será sincronizado automaticamente.`
+          });
+          setPedidoParaCancelar(null);
+          await new Promise((r) => setTimeout(r, 150));
+          onRecarregar();
+          return;
+        } catch (brokerErr) {
+          console.error('Erro ao enfileirar cancelamento no broker:', brokerErr);
+        }
+      }
+
+      const mensagem =
+        err.response?.data?.error ||
+        'Não foi possível cancelar o pedido nem via ms-pedidos (:3002) nem via Event Broker (:3003).';
       onToast({
         type: 'error',
         title: 'Falha no Cancelamento',
@@ -82,342 +164,511 @@ export default function HistoricoPedidos({
     }
   }
 
-  function copiarId(id) {
-    navigator.clipboard.writeText(id);
-    setCopiadoId(id);
-    setTimeout(() => setCopiadoId(null), 2000);
-  }
-
-  // Estatísticas calculadas
-  const totalFaturado = pedidos
-    .filter((p) => p.status === 'REALIZADO')
-    .reduce((acc, p) => acc + (p.valorTotal || 0), 0);
-  const totalRealizados = pedidos.filter((p) => p.status === 'REALIZADO').length;
-  const totalCancelados = pedidos.filter((p) => p.status === 'CANCELADO').length;
-
   return (
-    <div className="space-y-6">
-      
-      {/* Topo do Histórico com Régua Analítica Integrada (Sem cards soltos de IA) */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Meus Pedidos & Histórico
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold tabular-nums">
-              {pedidos.length} {pedidos.length === 1 ? 'pedido' : 'pedidos'}
+    <div className="flex flex-col w-full">
+      {/* Sub-header / Breadcrumb Bar */}
+      <section className="w-full bg-surface-container-lowest/70 backdrop-blur-md border-b border-surface-container">
+        <div className="max-w-7xl mx-auto px-5 md:px-10 py-3.5 flex flex-wrap items-center justify-between gap-3 text-on-surface-variant text-[11px]">
+          <div className="flex items-center gap-1.5 tracking-tight">
+            <button
+              type="button"
+              onClick={onVoltarVitrine}
+              className="hover:text-on-surface transition-colors"
+            >
+              Vitrine
+            </button>
+            <span>/</span>
+            <span className="text-on-surface font-medium text-xs">Meus Pedidos</span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-primary inline-block" />
+              <span>Snapshot Pattern Ativo</span>
+            </span>
+            <span className="hidden sm:inline text-outline-variant">|</span>
+            <span className="text-xs text-on-surface font-medium tabular-nums">
+              {pedidos.length} {pedidos.length === 1 ? 'pedido' : 'pedidos'} •{' '}
+              {formatarPreco(totalFaturado)} realizados
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Persistência independente no banco de dados do <code className="text-blue-600 font-mono">ms-pedidos</code>
-          </p>
         </div>
+      </section>
 
-        {/* Régua de Métricas Compacta e Integrada */}
-        <div className="flex items-center gap-4 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 self-start md:self-auto text-xs">
-          <div>
-            <span className="text-[10px] uppercase font-semibold text-slate-400 block">Total Aprovado</span>
-            <span className="font-extrabold text-slate-900 tabular-nums">{formatarPreco(totalFaturado)}</span>
-          </div>
-          <div className="w-px h-6 bg-slate-200" />
-          <div>
-            <span className="text-[10px] uppercase font-semibold text-slate-400 block">Concluídos</span>
-            <span className="font-bold text-emerald-700 tabular-nums">{totalRealizados}</span>
-          </div>
-          <div className="w-px h-6 bg-slate-200" />
-          <div>
-            <span className="text-[10px] uppercase font-semibold text-slate-400 block">Cancelados</span>
-            <span className="font-bold text-rose-700 tabular-nums">{totalCancelados}</span>
-          </div>
-
-          <button
-            onClick={onRecarregar}
-            disabled={loading}
-            aria-label="Atualizar histórico"
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-all active:scale-95 ml-1"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-          </button>
-        </div>
-      </div>
-
-      {/* Alerta de Degradação Graciosa (ms-pedidos Offline) */}
-      {erro && (
-        <div className="p-5 bg-rose-50 border border-rose-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-5 md:px-10 w-full py-10">
+        <header className="mb-8 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
-              <h4 className="text-sm font-bold text-rose-900">
-                Histórico Temporariamente Indisponível
-              </h4>
-              <p className="text-xs text-rose-700 mt-0.5 leading-relaxed">
-                Não foi possível conectar ao <code className="font-mono">ms-pedidos</code> na porta 3002.
-                Se o serviço foi derrubado propositalmente no teste de resiliência, a interface não quebra.
+              <h1 className="font-sans text-3xl sm:text-4xl font-semibold text-on-surface tracking-tight">
+                Meus Pedidos
+              </h1>
+              <p className="text-sm sm:text-base text-on-surface-variant mt-1 max-w-2xl">
+                Histórico em tempo real persistido em <code className="font-mono text-xs">ms-pedidos</code>{' '}
+                com nome e preço unitário preservados por Snapshot.
               </p>
             </div>
-          </div>
-          <button
-            onClick={onRecarregar}
-            className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-sm self-start sm:self-auto transition-colors"
-          >
-            Tentar Reconectar
-          </button>
-        </div>
-      )}
 
-      {/* Tabela de Pedidos com Evidência do Snapshot Pattern */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400 space-y-3">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600" />
-            <p className="text-xs">Sincronizando pedidos...</p>
+            <button
+              type="button"
+              onClick={onRecarregar}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface-container-lowest border border-surface-container text-xs font-medium text-on-surface hover:bg-surface-container transition-colors self-start sm:self-auto disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-primary' : ''}`} />
+              <span>Atualizar histórico</span>
+            </button>
           </div>
-        ) : pedidos.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 space-y-2">
-            <Receipt className="w-8 h-8 mx-auto opacity-40 text-slate-400" />
-            <h4 className="font-bold text-slate-700 text-sm">Nenhum pedido registrado</h4>
-            <p className="text-xs text-slate-500">
-              Suas compras finalizadas aparecerão nesta central com recibo imutável.
+
+          {/* Filtros Segmentados + Busca */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="inline-flex p-1 bg-surface-container-low rounded-full self-start border border-surface-container">
+              <button
+                type="button"
+                onClick={() => setFiltroStatus('todos')}
+                className={`px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all ${
+                  filtroStatus === 'todos'
+                    ? 'bg-surface-container-lowest text-on-surface shadow-sm font-semibold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                Todos ({pedidos.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltroStatus('REALIZADO')}
+                className={`px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all ${
+                  filtroStatus === 'REALIZADO'
+                    ? 'bg-surface-container-lowest text-on-surface shadow-sm font-semibold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                Realizados ({totalRealizados})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFiltroStatus('CANCELADO')}
+                className={`px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all ${
+                  filtroStatus === 'CANCELADO'
+                    ? 'bg-surface-container-lowest text-on-surface shadow-sm font-semibold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                Cancelados ({totalCancelados})
+              </button>
+            </div>
+
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-on-surface-variant absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={buscaPedido}
+                onChange={(e) => setBuscaPedido(e.target.value)}
+                placeholder="Buscar por ID ou produto..."
+                className="w-full bg-surface-container-lowest pl-10 pr-4 py-2 rounded-full text-xs sm:text-sm text-on-surface placeholder:text-on-surface-variant border border-surface-container focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm"
+              />
+            </div>
+          </div>
+        </header>
+
+        {/* Alerta de Degradação Graciosa */}
+        {erro && (
+          <div className="mb-8 p-5 bg-error-container/40 border border-error/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-semibold text-on-surface">
+                  Histórico Temporariamente Indisponível
+                </h4>
+                <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">
+                  {erro} A interface segue estável e sem perda de dados.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onRecarregar}
+              className="px-4 py-2 rounded-full bg-on-surface text-surface-container-lowest text-xs font-medium hover:opacity-90 transition-opacity self-start sm:self-auto"
+            >
+              Tentar Reconectar
+            </button>
+          </div>
+        )}
+
+        {/* Loading / Vazio / Master-Detail */}
+        {loading ? (
+          <div className="bg-surface-container-lowest rounded-[20px] border border-surface-container p-12 text-center text-on-surface-variant space-y-3">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-primary-container" />
+            <p className="text-xs">Sincronizando pedidos e snapshots...</p>
+          </div>
+        ) : pedidosFiltrados.length === 0 ? (
+          <div className="bg-surface-container-lowest rounded-[20px] border border-surface-container p-12 text-center space-y-3">
+            <Receipt className="w-9 h-9 mx-auto text-outline opacity-60" />
+            <h3 className="font-semibold text-on-surface text-base">Nenhum pedido encontrado</h3>
+            <p className="text-xs text-on-surface-variant max-w-md mx-auto leading-relaxed">
+              {buscaPedido || filtroStatus !== 'todos'
+                ? 'Nenhum registro corresponde aos filtros selecionados.'
+                : 'Ainda não há pedidos registrados no banco do ms-pedidos.'}
             </p>
+            <button
+              type="button"
+              onClick={onVoltarVitrine}
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-primary-container text-white text-xs font-medium hover:bg-primary transition-colors"
+            >
+              Ir para a Vitrine
+            </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
-                <tr>
-                  <th className="py-3 px-4">Pedido ID</th>
-                  <th className="py-3 px-4">Data / Hora</th>
-                  <th className="py-3 px-4">Produto (Snapshot)</th>
-                  <th className="py-3 px-4">Preço Unit. (Snapshot)</th>
-                  <th className="py-3 px-4 text-center">Qtd</th>
-                  <th className="py-3 px-4">Valor Total</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {pedidos.map((pedido) => {
-                  const cancelado = pedido.status === 'CANCELADO';
-                  return (
-                    <tr
-                      key={pedido.id}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        cancelado ? 'bg-slate-50/40 opacity-75' : ''
-                      }`}
-                    >
-                      {/* ID do Pedido */}
-                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-600">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Coluna Esquerda: Lista de Pedidos */}
+            <section aria-label="Lista de Pedidos" className="lg:col-span-8 space-y-4">
+              {pedidosFiltrados.map((pedido) => {
+                const cancelado = pedido.status === 'CANCELADO';
+                const selecionado = pedidoAtivo?.id === pedido.id;
+                const prodAtual = produtosPorId.get(pedido.produtoId);
+
+                return (
+                  <article
+                    key={pedido.id}
+                    className={`group relative bg-surface-container-lowest rounded-[20px] p-5 sm:p-6 border transition-all duration-200 ${
+                      selecionado
+                        ? 'border-primary/30 shadow-md'
+                        : 'border-surface-container shadow-sm hover:shadow-md'
+                    } ${cancelado ? 'opacity-90' : ''}`}
+                  >
+                    {selecionado && (
+                      <div className="absolute left-0 top-7 bottom-7 w-1 bg-primary rounded-r-full" />
+                    )}
+
+                    {/* Header */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-surface-container/70">
+                      <div className="flex items-center gap-2 flex-wrap text-xs text-on-surface-variant">
+                        <span className="tabular-nums">{formatarData(pedido.dataPedido)}</span>
+                        <span className="w-1 h-1 rounded-full bg-outline-variant" />
+                        <span className="font-mono font-medium text-on-surface tracking-tight">
+                          Pedido #{pedido.id.slice(0, 8)}
+                        </span>
                         <button
+                          type="button"
                           onClick={() => copiarId(pedido.id)}
-                          className="flex items-center gap-1 hover:text-blue-600 transition-colors"
-                          title="Copiar UUID do pedido"
+                          title="Copiar UUID completo do pedido"
+                          className="p-1 text-on-surface-variant hover:text-primary transition-colors flex items-center rounded"
                         >
-                          <span>{pedido.id.slice(0, 8)}...</span>
                           {copiadoId === pedido.id ? (
-                            <Check className="w-3 h-3 text-emerald-600" />
+                            <Check className="w-3.5 h-3.5 text-apple-green" />
                           ) : (
-                            <Copy className="w-3 h-3 opacity-40 hover:opacity-100" />
+                            <Copy className="w-3.5 h-3.5" />
                           )}
                         </button>
-                      </td>
+                      </div>
 
-                      {/* Data Formatada */}
-                      <td className="py-3.5 px-4 text-slate-500 whitespace-nowrap tabular-nums">
-                        {formatarData(pedido.dataPedido)}
-                      </td>
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold ${
+                          cancelado
+                            ? 'bg-[#fdf2f2] text-[#d70015]'
+                            : 'bg-[#ebf9ee] text-[#1c7e2d]'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            cancelado ? 'bg-[#ff3b30]' : 'bg-[#34c759]'
+                          }`}
+                        />
+                        {pedido.status}
+                      </span>
+                    </div>
 
-                      {/* Nome do Produto com Selo de Imutabilidade */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-900">{pedido.nomeProduto}</span>
-                          <span 
-                            className="inline-flex items-center p-0.5 text-blue-600 bg-blue-50 border border-blue-200 rounded" 
-                            title="Snapshot Pattern: gravado de forma imutável no ato da compra"
+                    {/* Corpo do Pedido */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 pt-4">
+                      <div className="flex items-start gap-4">
+                        <div
+                          className={`w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-white border border-surface-container/70 shrink-0 ${
+                            cancelado ? 'grayscale opacity-75' : ''
+                          }`}
+                        >
+                          <ProdutoAvatar
+                            nome={pedido.nomeProduto}
+                            imagemUrl={prodAtual?.imagemUrl || null}
+                            produtoId={pedido.produtoId}
+                            compact
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <span className="font-mono text-[11px] text-outline block">
+                            produtoId: {pedido.produtoId.slice(0, 8)}...
+                          </span>
+                          <h2
+                            className={`font-sans text-lg font-semibold text-on-surface leading-tight ${
+                              cancelado ? 'line-through opacity-70' : ''
+                            }`}
                           >
-                            <Lock className="w-2.5 h-2.5" />
+                            {pedido.nomeProduto}
+                          </h2>
+                          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                            <span className="text-xs sm:text-sm text-on-surface font-medium tabular-nums">
+                              {pedido.quantidade} un. × {formatarPreco(pedido.precoUnitario)}
+                            </span>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-container-low text-on-surface-variant text-[11px]">
+                              <Lock className="w-3 h-3 text-primary" />
+                              <span>Snapshot Imutável</span>
+                            </span>
+                          </div>
+                          {cancelado && (
+                            <p className="text-[11px] text-on-surface-variant flex items-center gap-1 pt-0.5">
+                              <Info className="w-3.5 h-3.5 text-tertiary" />
+                              <span>Pedido cancelado • Estoque estornado para o catálogo</span>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Preço & Ações */}
+                      <div className="flex flex-col md:items-end justify-between shrink-0 pt-2 md:pt-0">
+                        <div className="md:text-right mb-3">
+                          <span className="text-[11px] text-on-surface-variant block uppercase tracking-wider">
+                            {cancelado ? 'Valor Estornado' : 'Valor Total'}
+                          </span>
+                          <span
+                            className={`font-sans text-xl font-semibold tabular-nums ${
+                              cancelado ? 'text-on-surface-variant line-through' : 'text-on-surface'
+                            }`}
+                          >
+                            {formatarPreco(pedido.valorTotal)}
                           </span>
                         </div>
-                      </td>
 
-                      {/* Preço Unitário Snapshot (Regra 3) */}
-                      <td className="py-3.5 px-4 text-slate-700 font-semibold tabular-nums">
-                        {formatarPreco(pedido.precoUnitario)}
-                      </td>
-
-                      {/* Quantidade */}
-                      <td className="py-3.5 px-4 text-center font-bold text-slate-800 tabular-nums">
-                        {pedido.quantidade}
-                      </td>
-
-                      {/* Valor Total */}
-                      <td className="py-3.5 px-4 font-extrabold text-slate-900 whitespace-nowrap tabular-nums">
-                        {formatarPreco(pedido.valorTotal)}
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                          cancelado
-                            ? 'bg-rose-100 text-rose-800'
-                            : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {cancelado ? (
-                            <>
-                              <Ban className="w-3 h-3" />
-                              CANCELADO
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-3 h-3" />
-                              APROVADO
-                            </>
-                          )}
-                        </span>
-                      </td>
-
-                      {/* Ações: Ver Recibo & Cancelar */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="inline-flex items-center gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <button
-                            onClick={() => setPedidoDetalhe(pedido)}
-                            title="Visualizar Recibo de Compra"
-                            aria-label={`Ver recibo do pedido ${pedido.id.slice(0, 8)}`}
-                            className="p-1 text-blue-700 hover:text-blue-900 hover:bg-blue-100 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                            type="button"
+                            onClick={() => setPedidoSelecionadoId(pedido.id)}
+                            className={`px-4 py-2 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
+                              selecionado
+                                ? 'bg-primary text-on-primary shadow-sm'
+                                : 'bg-surface-container-low hover:bg-surface-container text-on-surface'
+                            }`}
                           >
-                            <Eye className="w-4 h-4" />
+                            <span>Ver comprovante</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
                           </button>
 
-                          {!cancelado ? (
+                          {!cancelado && (
                             <button
-                              onClick={() => handleCancelar(pedido)}
+                              type="button"
+                              onClick={() => setPedidoParaCancelar(pedido)}
                               disabled={cancelandoId === pedido.id}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors active:scale-95 disabled:opacity-50"
+                              className="px-4 py-2 rounded-full text-xs font-medium text-on-surface-variant hover:text-error hover:bg-error-container/25 transition-colors disabled:opacity-50"
                             >
-                              <Ban className="w-3 h-3" />
-                              <span>{cancelandoId === pedido.id ? 'Estornando...' : 'Cancelar'}</span>
+                              {cancelandoId === pedido.id ? 'Estornando...' : 'Cancelar pedido'}
                             </button>
-                          ) : (
-                            <span className="text-[11px] text-slate-400 italic px-1">Estornado</span>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+
+            {/* Coluna Direita: Comprovante Oficial Sticky */}
+            {pedidoAtivo && (
+              <aside aria-label="Comprovante do Pedido" className="lg:col-span-4 w-full lg:sticky lg:top-24">
+                <div className="bg-surface-container-lowest rounded-[20px] p-6 shadow-sm border border-surface-container relative overflow-hidden">
+                  <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-primary via-primary-container to-primary" />
+
+                  <div className="flex items-center justify-between pb-4">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-low text-primary text-[11px] font-medium">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Snapshot Imutável</span>
+                    </div>
+                    <span className="text-[11px] font-mono text-on-surface-variant">ms-pedidos</span>
+                  </div>
+
+                  <div className="space-y-1 mb-5">
+                    <h3 className="font-sans text-xl font-semibold text-on-surface">
+                      Comprovante do Pedido
+                    </h3>
+                    <p className="text-xs text-on-surface-variant">
+                      Campos reais persistidos no momento da transação.
+                    </p>
+                  </div>
+
+                  <div className="bg-surface-container-low rounded-xl p-3.5 space-y-2.5 mb-5 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-on-surface-variant">id:</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copiarId(pedidoAtivo.id, 'UUID do pedido copiado para a área de transferência!')
+                        }
+                        className="font-mono text-on-surface font-medium hover:text-primary transition-colors flex items-center gap-1"
+                      >
+                        <span className="truncate max-w-[160px]">{pedidoAtivo.id}</span>
+                        <Copy className="w-3 h-3 shrink-0" />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-on-surface-variant">produtoId:</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copiarId(
+                            pedidoAtivo.produtoId,
+                            'UUID do produto copiado para a área de transferência!'
+                          )
+                        }
+                        className="font-mono text-on-surface font-medium hover:text-primary transition-colors flex items-center gap-1"
+                      >
+                        <span className="truncate max-w-[160px]">{pedidoAtivo.produtoId}</span>
+                        <Copy className="w-3 h-3 shrink-0" />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-on-surface-variant">dataPedido:</span>
+                      <span className="text-on-surface font-medium tabular-nums">
+                        {formatarData(pedidoAtivo.dataPedido)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-on-surface-variant">status:</span>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                          pedidoAtivo.status === 'CANCELADO'
+                            ? 'bg-[#fdf2f2] text-[#d70015]'
+                            : 'bg-[#ebf9ee] text-[#1c7e2d]'
+                        }`}
+                      >
+                        {pedidoAtivo.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Item Congelado */}
+                  <div className="space-y-3 mb-5">
+                    <span className="text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold block">
+                      Dados do Snapshot
+                    </span>
+                    <div className="p-3 rounded-xl bg-surface-container-low/60 border border-surface-container flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-on-surface truncate">
+                          {pedidoAtivo.nomeProduto}
+                        </p>
+                        <span className="text-[11px] text-on-surface-variant tabular-nums">
+                          {pedidoAtivo.quantidade} × {formatarPreco(pedidoAtivo.precoUnitario)}
+                        </span>
+                      </div>
+                      <span className="text-xs font-semibold text-on-surface tabular-nums shrink-0">
+                        {formatarPreco(pedidoAtivo.valorTotal)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 text-xs">
+                      <div className="flex justify-between text-on-surface-variant">
+                        <span>precoUnitario</span>
+                        <span className="tabular-nums font-medium text-on-surface">
+                          {formatarPreco(pedidoAtivo.precoUnitario)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-on-surface-variant">
+                        <span>quantidade</span>
+                        <span className="tabular-nums font-medium text-on-surface">
+                          {pedidoAtivo.quantidade} un.
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-on-surface text-base font-semibold pt-2 border-t border-surface-container">
+                        <span>valorTotal</span>
+                        <span className="tabular-nums">{formatarPreco(pedidoAtivo.valorTotal)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-surface-container-low rounded-xl p-3.5 mb-5">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                        Registro gravado via <strong className="text-on-surface font-medium">Snapshot Pattern</strong>.
+                        Alterações futuras de nome ou preço no <code className="font-mono text-primary">ms-produtos</code>{' '}
+                        não alteram este pedido.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="w-full py-2.5 px-4 rounded-full bg-primary-container hover:bg-primary text-on-primary text-xs font-medium transition-colors flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Imprimir / Salvar Comprovante</span>
+                  </button>
+                </div>
+              </aside>
+            )}
           </div>
         )}
       </div>
 
-      {/* Modal de Recibo Detalhado (Comprovação Integral do Snapshot Pattern) */}
-      {pedidoDetalhe && createPortal(
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setPedidoDetalhe(null);
-            }
-          }}
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md transition-all duration-200"
-          style={{ margin: 0, top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh' }}
-          aria-modal="true"
-          role="dialog"
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-fade-in-up relative z-10">
-            
-            {/* Topo do Recibo */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-                  <Receipt className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Recibo Oficial do Pedido
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Snapshot imutável gravado no <code className="text-blue-600 font-mono">ms-pedidos</code>
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPedidoDetalhe(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200/50 transition-colors"
-                aria-label="Fechar recibo"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Corpo do Recibo */}
-            <div className="p-6 space-y-4">
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Número do Pedido</span>
-                  <span className="font-mono text-slate-700 font-bold">{pedidoDetalhe.id.slice(0, 16)}...</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Data da Transação</span>
-                  <span className="text-slate-800 font-medium tabular-nums">{formatarData(pedidoDetalhe.dataPedido)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Status</span>
-                  <span className={`font-bold px-2 py-0.5 rounded-full text-[11px] ${
-                    pedidoDetalhe.status === 'CANCELADO' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
-                  }`}>
-                    {pedidoDetalhe.status}
-                  </span>
-                </div>
+      {/* Modal de Confirmação de Cancelamento */}
+      {pedidoParaCancelar &&
+        createPortal(
+          <div
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !cancelandoId) {
+                setPedidoParaCancelar(null);
+              }
+            }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-on-surface/40 backdrop-blur-sm animate-fade-in-up"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar cancelamento do pedido"
+          >
+            <div className="bg-surface-container-lowest rounded-[24px] p-7 max-w-md w-full shadow-2xl border border-surface-container space-y-5">
+              <div className="w-12 h-12 rounded-full bg-error-container/50 text-error flex items-center justify-center">
+                <Ban className="w-6 h-6" />
               </div>
 
-              {/* Tabela de Valores do Snapshot */}
-              <div className="border border-slate-200 rounded-xl p-4 space-y-2.5 text-xs">
-                <div className="flex items-center justify-between font-bold text-slate-900 pb-2 border-b border-slate-100">
-                  <span>{pedidoDetalhe.nomeProduto}</span>
-                  <span className="tabular-nums">{formatarPreco(pedidoDetalhe.valorTotal)}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Preço Unitário (Snapshot)</span>
-                  <span className="tabular-nums font-semibold text-slate-800">{formatarPreco(pedidoDetalhe.precoUnitario)}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Quantidade Adquirida</span>
-                  <span className="tabular-nums font-semibold text-slate-800">{pedidoDetalhe.quantidade} un.</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Frete</span>
-                  <span className="text-emerald-700 font-semibold uppercase text-[10px]">Grátis</span>
-                </div>
-                <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-sm font-extrabold text-slate-900">
-                  <span>Total Consolidado</span>
-                  <span className="text-emerald-700 tabular-nums">{formatarPreco(pedidoDetalhe.valorTotal)}</span>
-                </div>
+              <div>
+                <h3 className="font-sans text-xl font-semibold text-on-surface">
+                  Solicitar Cancelamento
+                </h3>
+                <p className="text-sm text-on-surface-variant mt-1.5 leading-relaxed">
+                  Deseja cancelar o pedido{' '}
+                  <span className="font-mono font-semibold text-on-surface">
+                    #{pedidoParaCancelar.id.slice(0, 8)}
+                  </span>{' '}
+                  ({pedidoParaCancelar.nomeProduto})?
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900">
-                <ShieldCheck className="w-4 h-4 text-blue-600 flex-shrink-0" />
-                <span className="leading-relaxed">
-                  Valores financeiros preservados pelo Snapshot Pattern. Alterações no catálogo não impactam este registro.
-                </span>
+              <div className="bg-surface-container-low rounded-xl p-3.5 text-xs text-on-surface-variant leading-relaxed">
+                O status passará para <strong className="text-on-surface">CANCELADO</strong> e as{' '}
+                <strong className="text-on-surface">{pedidoParaCancelar.quantidade} un.</strong>{' '}
+                retornarão automaticamente ao estoque oficial em{' '}
+                <code className="font-mono text-primary">ms-produtos</code>.
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPedidoParaCancelar(null)}
+                  disabled={Boolean(cancelandoId)}
+                  className="px-4 py-2 rounded-full text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+                >
+                  Manter pedido
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarCancelamento}
+                  disabled={Boolean(cancelandoId)}
+                  className="px-5 py-2 rounded-full text-xs font-medium bg-error text-on-error hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50"
+                >
+                  {cancelandoId ? 'Estornando...' : 'Confirmar Cancelamento'}
+                </button>
               </div>
             </div>
-
-            {/* Ações do Recibo */}
-            <div className="flex items-center justify-end p-4 border-t border-slate-100 bg-slate-50/50">
-              <button
-                type="button"
-                onClick={() => setPedidoDetalhe(null)}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shadow-sm"
-              >
-                Fechar Recibo
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

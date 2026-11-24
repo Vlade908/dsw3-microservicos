@@ -1,175 +1,275 @@
-import React from 'react';
-import { Package, ShoppingBag, Receipt, Server, RefreshCw, Cpu } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, ShoppingBag, X, Activity, Menu } from 'lucide-react';
+
+const NAV_ITEMS = [
+  { id: 'catalogo', label: 'Vitrine' },
+  { id: 'historico', label: 'Meus Pedidos' },
+  { id: 'gerenciar', label: 'Gerenciar Loja' }
+];
+
+const MOBILE_NAV_ITEMS = [
+  { id: 'catalogo', label: 'Vitrine' },
+  { id: 'pedido', label: 'Checkout' },
+  { id: 'historico', label: 'Meus Pedidos' },
+  { id: 'gerenciar', label: 'Gerenciar Loja' }
+];
 
 export default function Header({
   activeTab,
   setActiveTab,
+  busca = '',
+  onBuscaChange,
   produtosOnline,
   pedidosOnline,
   brokerOnline = true,
   queryOnline = true,
-  checkingHealth,
-  onRefreshHealth,
   totalProdutos = 0,
-  totalPedidos = 0
+  totalPedidos = 0,
+  temItemCheckout = false,
+  onToggleStatusPopover
 }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const searchInputRef = useRef(null);
+
   const todosOnline = produtosOnline && pedidosOnline && brokerOnline && queryOnline;
 
+  useEffect(() => {
+    if (searchOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [searchOpen]);
+
+  const handleNavigate = (tabId) => {
+    setActiveTab(tabId);
+    setMobileMenuOpen(false);
+  };
+
+  const handleOpenSearch = () => {
+    setMobileMenuOpen(false);
+    setSearchOpen(true);
+  };
+
+  const handleCloseSearch = () => {
+    setSearchOpen(false);
+    if (busca) onBuscaChange?.('');
+  };
+
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3.5 gap-3">
-          
-          {/* Logo Comercial e Marca Técnica */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-sm">
-              <Cpu className="w-5 h-5 text-blue-400" />
+    <header className="fixed top-0 inset-x-0 z-50 bg-surface-container-lowest/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
+      <div className="h-16 max-w-7xl mx-auto px-5 md:px-10 flex items-center justify-between gap-4">
+        {/* Marca VERO STORE */}
+        <button
+          type="button"
+          onClick={() => handleNavigate('catalogo')}
+          className="flex items-center gap-1.5 shrink-0 focus:outline-none"
+          aria-label="VERO Store — Ir para a Vitrine"
+        >
+          <span className="font-sans text-[21px] leading-[28px] tracking-[-0.01em] text-on-surface font-bold">
+            VERO
+          </span>
+          <span className="text-[11px] leading-[14px] tracking-[0.04em] uppercase px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant font-medium">
+            STORE
+          </span>
+        </button>
+
+        {/* Navegação Central Editorial ou Busca Inline */}
+        {searchOpen ? (
+          <div className="flex-1 max-w-lg mx-2 flex items-center gap-2 animate-fade-in-up">
+            <div className="relative flex-1">
+              <Search
+                className="w-4 h-4 text-on-surface-variant absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                strokeWidth={1.75}
+              />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={busca}
+                onChange={(e) => {
+                  onBuscaChange?.(e.target.value);
+                  if (activeTab !== 'catalogo') setActiveTab('catalogo');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearchOpen(false);
+                  }
+                }}
+                placeholder="Buscar produtos cadastrados..."
+                aria-label="Buscar produtos cadastrados"
+                className="h-10 w-full pl-10 pr-9 rounded-full bg-surface-container-low/90 border border-outline-variant/40 text-[14px] text-on-surface placeholder:text-on-surface-variant/75 focus:bg-surface-container-lowest focus:outline-none focus:ring-2 focus:ring-primary-container/25 focus:border-primary-container/40 transition-all"
+              />
+              {busca && (
+                <button
+                  type="button"
+                  onClick={() => onBuscaChange?.('')}
+                  aria-label="Limpar termo de busca"
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container absolute right-2 top-1/2 -translate-y-1/2 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-slate-900 tracking-tight text-base">
-                  NEXUS TECH STORE
-                </span>
-                <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                  Microserviços DSW3
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 font-medium">
-                Catálogo Desacoplado & Snapshot Imutável
-              </p>
-            </div>
-          </div>
-
-          {/* Monitor de Saúde dos Microsserviços (Modo Operate Limpo) */}
-          <div className="flex items-center gap-2 self-start sm:self-auto bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
-            <div className="flex items-center gap-1.5 font-medium text-slate-600 mr-1">
-              <Server className="w-3.5 h-3.5 text-slate-400" />
-              <span>Serviços:</span>
-            </div>
-
-            {/* Status ms-produtos */}
-            <div 
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold text-[11px] border transition-colors ${
-                produtosOnline
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border-rose-200'
-              }`}
-              title={`ms-produtos: porta 3001 (${produtosOnline ? 'ONLINE' : 'OFFLINE'})`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${produtosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-              <span>produtos :3001</span>
-            </div>
-
-            {/* Status ms-pedidos */}
-            <div 
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold text-[11px] border transition-colors ${
-                pedidosOnline
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border-rose-200'
-              }`}
-              title={`ms-pedidos: porta 3002 (${pedidosOnline ? 'ONLINE' : 'OFFLINE'})`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${pedidosOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-              <span>pedidos :3002</span>
-            </div>
-
-            {/* Status event-broker */}
-            <a 
-              href="http://localhost:3003"
-              target="_blank"
-              rel="noreferrer"
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold text-[11px] border transition-colors ${
-                brokerOnline
-                  ? 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100'
-                  : 'bg-rose-50 text-rose-800 border-rose-200'
-              }`}
-              title={`event-broker: porta 3003 (${brokerOnline ? 'ONLINE - Clique para abrir o Monitor' : 'OFFLINE'})`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${brokerOnline ? 'bg-purple-500 animate-pulse' : 'bg-rose-500'}`} />
-              <span>broker :3003</span>
-            </a>
-
-            {/* Status ms-query */}
-            <a 
-              href="http://localhost:3004"
-              target="_blank"
-              rel="noreferrer"
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-semibold text-[11px] border transition-colors ${
-                queryOnline
-                  ? 'bg-cyan-50 text-cyan-800 border-cyan-200 hover:bg-cyan-100'
-                  : 'bg-rose-50 text-rose-800 border-rose-200'
-              }`}
-              title={`ms-query: porta 3004 (${queryOnline ? 'ONLINE - Clique para abrir o Dashboard CQRS' : 'OFFLINE'})`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${queryOnline ? 'bg-cyan-500 animate-pulse' : 'bg-rose-500'}`} />
-              <span>query :3004</span>
-            </a>
-
-            {/* Botão de Refresh Tátil */}
             <button
-              onClick={onRefreshHealth}
-              disabled={checkingHealth}
-              aria-label="Atualizar status de conexão"
-              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-all active:scale-95 ml-0.5"
+              type="button"
+              onClick={handleCloseSearch}
+              aria-label="Fechar busca"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors shrink-0"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${checkingHealth ? 'animate-spin text-blue-600' : ''}`} />
+              <X className="w-4 h-4" strokeWidth={1.75} />
             </button>
           </div>
-        </div>
+        ) : (
+          <nav className="hidden md:flex items-center gap-8" aria-label="Navegação principal">
+            {NAV_ITEMS.map((item) => {
+              const isActive = activeTab === item.id;
+              const isHistoricoActive = isActive && item.id === 'historico';
 
-        {/* Abas Estilo Pílula Comercial com Contadores */}
-        <nav className="flex items-center gap-1 border-t border-slate-100 pt-2 pb-1 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('catalogo')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeTab === 'catalogo'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Vitrine de Produtos</span>
-            {totalProdutos > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                activeTab === 'catalogo' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
-              }`}>
-                {totalProdutos}
-              </span>
-            )}
-          </button>
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleNavigate(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`relative py-1 text-[14px] leading-[18px] transition-colors duration-150 ${
+                    isHistoricoActive
+                      ? 'text-primary font-semibold'
+                      : isActive
+                      ? 'text-on-surface font-semibold'
+                      : 'text-on-surface-variant hover:text-on-surface font-medium'
+                  }`}
+                >
+                  {item.label}
+                  {isActive && (
+                    <span
+                      className={`absolute -bottom-1 inset-x-0 h-[1.5px] rounded-full ${
+                        isHistoricoActive ? 'bg-primary' : 'bg-on-surface'
+                      }`}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
+        {/* Trio de Ações Stitch + Toggle Mobile */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!searchOpen && (
+            <button
+              type="button"
+              onClick={handleOpenSearch}
+              aria-label="Buscar produtos"
+              title="Buscar no catálogo"
+              className="relative w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+            >
+              <Search className="w-[19px] h-[19px]" strokeWidth={1.75} />
+              {busca.trim() !== '' && (
+                <span
+                  aria-hidden="true"
+                  className="w-1.5 h-1.5 rounded-full bg-primary-container absolute top-1.5 right-1.5"
+                />
+              )}
+            </button>
+          )}
+
+          {/* Atalho Checkout */}
           <button
-            onClick={() => setActiveTab('pedido')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+            type="button"
+            onClick={() => handleNavigate('pedido')}
+            aria-label="Ir para o Checkout"
+            title="Ir para o Checkout"
+            className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
               activeTab === 'pedido'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                ? 'bg-primary-fixed/70 text-primary'
+                : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Fazer Compra</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('historico')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeTab === 'historico'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            <Receipt className="w-3.5 h-3.5" />
-            <span>Meus Pedidos</span>
-            {totalPedidos > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                activeTab === 'historico' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
-              }`}>
-                {totalPedidos}
+            <ShoppingBag className="w-[19px] h-[19px]" strokeWidth={1.75} />
+            {temItemCheckout && activeTab !== 'pedido' && (
+              <span
+                aria-label="1 item selecionado no checkout"
+                className="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary-container text-on-primary text-[10px] flex items-center justify-center font-bold leading-none"
+              >
+                1
               </span>
             )}
           </button>
-        </nav>
+
+          {/* Status dos Microsserviços */}
+          <button
+            type="button"
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onToggleStatusPopover?.();
+            }}
+            title={
+              todosOnline
+                ? `Todos os 4 microsserviços operacionais (${totalProdutos} produtos, ${totalPedidos} pedidos) — clique para detalhes`
+                : 'Contingência ativa — clique para inspecionar serviços'
+            }
+            aria-label="Disponibilidade dos serviços"
+            className={`relative ml-1 w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm ${
+              todosOnline
+                ? 'bg-primary hover:bg-primary-container text-on-primary'
+                : 'bg-tertiary hover:bg-tertiary/90 text-white animate-pulse'
+            }`}
+          >
+            <Activity className="w-4 h-4" strokeWidth={2} />
+            <span
+              aria-hidden="true"
+              className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-surface-container-lowest ${
+                todosOnline ? 'bg-apple-green' : 'bg-amber-400'
+              }`}
+            />
+          </button>
+
+          {/* Toggle Menu Mobile */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label={mobileMenuOpen ? 'Fechar menu' : 'Abrir menu'}
+            aria-expanded={mobileMenuOpen}
+            className="md:hidden w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+          >
+            {mobileMenuOpen ? (
+              <X className="w-[19px] h-[19px]" strokeWidth={1.75} />
+            ) : (
+              <Menu className="w-[19px] h-[19px]" strokeWidth={1.75} />
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* Menu Mobile Flutuante */}
+      {mobileMenuOpen && (
+        <nav
+          aria-label="Navegação mobile"
+          className="md:hidden bg-surface-container-lowest/95 backdrop-blur-xl border-t border-surface-container/60 shadow-lg px-5 py-3 flex flex-col gap-1 animate-fade-in-up"
+        >
+          {MOBILE_NAV_ITEMS.map((item) => {
+            const isActive = activeTab === item.id;
+            const isHistoricoActive = isActive && item.id === 'historico';
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNavigate(item.id)}
+                aria-current={isActive ? 'page' : undefined}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-[14px] leading-[18px] transition-colors ${
+                  isHistoricoActive
+                    ? 'bg-primary-fixed/40 text-primary font-semibold'
+                    : isActive
+                    ? 'bg-surface-container text-on-surface font-semibold'
+                    : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low font-medium'
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </header>
   );
 }

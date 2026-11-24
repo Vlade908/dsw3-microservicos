@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, RefreshCw, ServerOff } from 'lucide-react';
+import { RefreshCw, ShieldAlert } from 'lucide-react';
 import Header from './components/Header';
 import CatalogoProdutos from './components/CatalogoProdutos';
 import FormularioPedido from './components/FormularioPedido';
 import HistoricoPedidos from './components/HistoricoPedidos';
+import GerenciarLoja from './components/GerenciarLoja';
+import Footer from './components/Footer';
+import StatusServicosPopover from './components/StatusServicosPopover';
 import ToastContainer from './components/Toast';
 import {
   produtosApi,
@@ -17,8 +20,10 @@ import {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('catalogo');
-  
-  // Estado dos dados principais
+  const [buscaGlobal, setBuscaGlobal] = useState('');
+  const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
+
+  // Dados reais carregados das APIs
   const [produtos, setProdutos] = useState([]);
   const [loadingProdutos, setLoadingProdutos] = useState(false);
   const [erroProdutos, setErroProdutos] = useState(null);
@@ -27,18 +32,17 @@ export default function App() {
   const [loadingPedidos, setLoadingPedidos] = useState(false);
   const [erroPedidos, setErroPedidos] = useState(null);
 
-  // Monitoramento de saúde dos microserviços
+  // Saúde dos 4 microsserviços
   const [produtosOnline, setProdutosOnline] = useState(true);
   const [pedidosOnline, setPedidosOnline] = useState(true);
   const [brokerOnline, setBrokerOnline] = useState(true);
   const [queryOnline, setQueryOnline] = useState(true);
-  const [usandoCacheProdutos, setUsandoCacheProdutos] = useState(false);
   const [checkingHealth, setCheckingHealth] = useState(false);
 
-  // Item selecionado para compra a partir da vitrine
+  // Item selecionado para compra
   const [produtoPreSelecionado, setProdutoPreSelecionado] = useState(null);
 
-  // Sistema de Toasts
+  // Toasts
   const [toasts, setToasts] = useState([]);
 
   const addToast = useCallback(({ type = 'info', title, message }) => {
@@ -53,7 +57,6 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Checagem de Saúde nos nós de backend, barramento e query service
   const checkHealth = useCallback(async () => {
     setCheckingHealth(true);
     const [hProdutos, hPedidos, hBroker, hQuery] = await Promise.all([
@@ -69,7 +72,6 @@ export default function App() {
     setCheckingHealth(false);
   }, []);
 
-  // Carregamento de Produtos com Fallback no Query Service e Cache Local
   const carregarProdutos = useCallback(async () => {
     setLoadingProdutos(true);
     setErroProdutos(null);
@@ -77,48 +79,42 @@ export default function App() {
       const response = await produtosApi.get('/produtos');
       setProdutos(response.data);
       setProdutosOnline(true);
-      setUsandoCacheProdutos(false);
       try {
         localStorage.setItem('dsw3_produtos_cache', JSON.stringify(response.data));
       } catch (_) {}
     } catch (err) {
       setProdutosOnline(false);
-      // 1. Tentar consultar no Query Service (ms-query :3004)
       try {
         const queryRes = await queryApi.get('/query/produtos');
         if (Array.isArray(queryRes.data)) {
           setProdutos(queryRes.data);
-          setUsandoCacheProdutos(true);
           setErroProdutos(null);
           try {
             localStorage.setItem('dsw3_produtos_cache', JSON.stringify(queryRes.data));
           } catch (_) {}
-          console.log('[frontend] RESILIÊNCIA CQRS: Catálogo obtido via ms-query (:3004).');
           return;
         }
       } catch (_) {}
 
-      // 2. Tentar recuperar do localStorage se o Query Service também estiver fora
       const cached = localStorage.getItem('dsw3_produtos_cache');
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setProdutos(parsed);
-            setUsandoCacheProdutos(true);
             setErroProdutos(null);
-            console.log('[frontend] RESILIÊNCIA ATIVA: Vitrine renderizada via Cache Local.');
             return;
           }
         } catch (_) {}
       }
-      setErroProdutos('Não foi possível obter os produtos do ms-produtos (:3001) nem do Query Service (:3004).');
+      setErroProdutos(
+        'Não foi possível obter os produtos do ms-produtos (:3001) nem do Query Service (:3004).'
+      );
     } finally {
       setLoadingProdutos(false);
     }
   }, []);
 
-  // Carregamento de Pedidos com Fallback no Query Service
   const carregarPedidos = useCallback(async () => {
     setLoadingPedidos(true);
     setErroPedidos(null);
@@ -128,25 +124,24 @@ export default function App() {
       setPedidosOnline(true);
     } catch (err) {
       setPedidosOnline(false);
-      // Tentar consultar histórico no Query Service (ms-query :3004)
       try {
         const queryRes = await queryApi.get('/query/pedidos');
         if (Array.isArray(queryRes.data)) {
           setPedidos(queryRes.data);
           setErroPedidos(null);
-          console.log('[frontend] RESILIÊNCIA CQRS: Histórico obtido via ms-query (:3004).');
           return;
         }
       } catch (_) {}
 
       console.error('Falha ao carregar pedidos:', err);
-      setErroPedidos('Não foi possível obter o histórico de compras do ms-pedidos (:3002) nem do Query Service.');
+      setErroPedidos(
+        'Não foi possível obter o histórico de compras do ms-pedidos (:3002) nem do Query Service.'
+      );
     } finally {
       setLoadingPedidos(false);
     }
   }, []);
 
-  // Polling de saúde contínuo a cada 10s
   useEffect(() => {
     checkHealth();
     carregarProdutos();
@@ -162,6 +157,7 @@ export default function App() {
   function handleSelecionarParaCompra(produto) {
     setProdutoPreSelecionado(produto);
     setActiveTab('pedido');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handlePedidoRealizado() {
@@ -169,74 +165,93 @@ export default function App() {
     carregarPedidos();
   }
 
+  function handleReconectarTudo() {
+    checkHealth();
+    carregarProdutos();
+    carregarPedidos();
+  }
+
   const algumServicoOffline = !produtosOnline || !pedidosOnline;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800 antialiased">
-      
-      {/* Banner de Alta Visibilidade para Tolerância a Falhas ao Vivo (Regra 3) */}
-      {algumServicoOffline && (
-        <div 
-          className="bg-rose-600 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-xs animate-fade-in-up"
-          role="alert"
-        >
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <ServerOff className="w-4 h-4 flex-shrink-0 animate-pulse" />
-              <span>
-                <strong>Aviso de Resiliência:</strong>{' '}
-                {!produtosOnline && !pedidosOnline
-                  ? 'Os dois microsserviços (produtos e pedidos) estão offline.'
-                  : !produtosOnline
-                  ? 'O ms-produtos (:3001) está offline. O frontend está operando com Cache Local e o ms-pedidos (:3002) continuará efetuando compras com Cache Replicado e enfileirando eventos no Broker (:3003)!'
-                  : 'O ms-pedidos (:3002) está offline. O catálogo continua navegável e as operações serão processadas assim que o serviço recuperar.'}
-              </span>
-            </div>
-
-            <button
-              onClick={() => {
-                checkHealth();
-                carregarProdutos();
-                carregarPedidos();
-              }}
-              className="flex items-center gap-1.5 px-3 py-1 bg-white/20 hover:bg-white/30 text-white font-bold rounded-lg transition-all active:scale-95 flex-shrink-0"
-            >
-              <RefreshCw className={`w-3 h-3 ${checkingHealth ? 'animate-spin' : ''}`} />
-              <span>Reconectar</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Topo com Navegação e Monitor de Serviços */}
+    <div className="min-h-screen bg-surface flex flex-col text-on-surface antialiased">
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        busca={buscaGlobal}
+        onBuscaChange={setBuscaGlobal}
         produtosOnline={produtosOnline}
         pedidosOnline={pedidosOnline}
         brokerOnline={brokerOnline}
         queryOnline={queryOnline}
-        checkingHealth={checkingHealth}
-        onRefreshHealth={() => {
-          checkHealth();
-          carregarProdutos();
-          carregarPedidos();
-        }}
         totalProdutos={produtos.length}
         totalPedidos={pedidos.length}
+        temItemCheckout={Boolean(produtoPreSelecionado)}
+        onToggleStatusPopover={() => setStatusPopoverOpen((prev) => !prev)}
       />
 
-      {/* Conteúdo Principal com Animação Fluida */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 w-full pt-16">
+        {algumServicoOffline && (
+          <section
+            className="w-full bg-surface-container-low/95 backdrop-blur-md border-b border-surface-container shadow-sm transition-all duration-300"
+            role="alert"
+          >
+            <div className="max-w-7xl mx-auto px-5 md:px-10 py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-on-surface">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-surface-container-lowest shadow-sm flex items-center justify-center text-tertiary flex-shrink-0">
+                  <ShieldAlert className="w-4 h-4 animate-pulse" />
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                  <span className="text-xs font-semibold tracking-tight text-on-surface shrink-0">
+                    Modo de fila segura ativo
+                  </span>
+                  <span className="hidden sm:inline text-outline-variant text-xs">•</span>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    {!produtosOnline && !pedidosOnline
+                      ? 'Os serviços transacionais (produtos e pedidos) estão offline. Consultas seguem ativas via ms-query (:3004) e comandos serão enfileirados no Event Broker (:3003).'
+                      : !produtosOnline
+                      ? 'O ms-produtos (:3001) está offline. O catálogo segue disponível via ms-query/cache, compras usam o Cache Replicado e alterações são enfileiradas no Broker (:3003).'
+                      : 'O ms-pedidos (:3002) está offline, mas você pode finalizar compras normalmente: novos pedidos e cancelamentos são enfileirados no Event Broker (:3003).'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-shrink-0 w-full md:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setStatusPopoverOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-container-lowest shadow-sm border border-surface-container text-[11px] text-on-surface-variant hover:text-on-surface transition-colors"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                  <span className="font-medium">Ver serviços</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReconectarTudo}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-primary-container text-on-primary text-xs font-medium hover:opacity-90 active:scale-95 transition-all shadow-sm"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${checkingHealth ? 'animate-spin' : ''}`} />
+                  <span>Reconectar</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         <div className="animate-fade-in-up" key={activeTab}>
           {activeTab === 'catalogo' && (
             <CatalogoProdutos
               produtos={produtos}
+              pedidos={pedidos}
               loading={loadingProdutos}
               erro={erroProdutos}
+              produtosOnline={produtosOnline}
+              pedidosOnline={pedidosOnline}
               onRecarregar={carregarProdutos}
               onSelecionarParaCompra={handleSelecionarParaCompra}
-              onToast={addToast}
+              onIrParaGerenciar={() => setActiveTab('gerenciar')}
+              busca={buscaGlobal}
+              onBuscaChange={setBuscaGlobal}
             />
           )}
 
@@ -244,8 +259,16 @@ export default function App() {
             <FormularioPedido
               produtos={produtos}
               produtoPreSelecionado={produtoPreSelecionado}
+              onLimparSelecao={() => setProdutoPreSelecionado(null)}
               onPedidoRealizado={handlePedidoRealizado}
-              onVerHistorico={() => setActiveTab('historico')}
+              onVerHistorico={() => {
+                setActiveTab('historico');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onVoltarVitrine={() => {
+                setActiveTab('catalogo');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
               onToast={addToast}
             />
           )}
@@ -253,11 +276,31 @@ export default function App() {
           {activeTab === 'historico' && (
             <HistoricoPedidos
               pedidos={pedidos}
+              produtos={produtos}
               loading={loadingPedidos}
               erro={erroPedidos}
               onRecarregar={() => {
                 carregarPedidos();
                 carregarProdutos();
+              }}
+              onVoltarVitrine={() => {
+                setActiveTab('catalogo');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onToast={addToast}
+            />
+          )}
+
+          {activeTab === 'gerenciar' && (
+            <GerenciarLoja
+              produtos={produtos}
+              loading={loadingProdutos}
+              erro={erroProdutos}
+              produtosOnline={produtosOnline}
+              onRecarregar={carregarProdutos}
+              onVoltarVitrine={() => {
+                setActiveTab('catalogo');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onToast={addToast}
             />
@@ -265,19 +308,26 @@ export default function App() {
         </div>
       </main>
 
-      {/* Rodapé Comercial Limpo */}
-      <footer className="bg-white border-t border-slate-200/80 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 space-y-1">
-          <p className="font-bold text-slate-700">
-            NEXUS TECH STORE • Arquitetura de Microserviços
-          </p>
-          <p className="text-slate-400">
-            IFSP • Câmpus Capivari • Projeto Prático DSW 3 • Prof. Me. André Luís Bordignon
-          </p>
-        </div>
-      </footer>
+      <Footer
+        produtosOnline={produtosOnline}
+        pedidosOnline={pedidosOnline}
+        brokerOnline={brokerOnline}
+        queryOnline={queryOnline}
+        onNavigateTab={setActiveTab}
+        onToggleStatusPopover={() => setStatusPopoverOpen((prev) => !prev)}
+      />
 
-      {/* Container Flutuante de Toasts */}
+      <StatusServicosPopover
+        isOpen={statusPopoverOpen}
+        onClose={() => setStatusPopoverOpen(false)}
+        produtosOnline={produtosOnline}
+        pedidosOnline={pedidosOnline}
+        brokerOnline={brokerOnline}
+        queryOnline={queryOnline}
+        checkingHealth={checkingHealth}
+        onRefreshHealth={handleReconectarTudo}
+      />
+
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
