@@ -1,0 +1,17 @@
+{
+  "name": "dsw3-microservicos-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Suíte de testes automatizados (Jest + Playwright) para os microsserviços DSW3",
+  "type": "module",
+  "scripts": {
+    "test:api": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test": "npm run test:api && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "jest": "^30.5.2"
+  }
+}

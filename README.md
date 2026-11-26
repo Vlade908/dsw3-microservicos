@@ -315,3 +315,35 @@ Ele inclui requisições pré-configuradas com variáveis de ambiente para:
 - `GET /pedidos/:id` (Detalhes)
 - `PATCH /pedidos/:id/cancelar` (Cancelamento e estorno)
 - `GET /health` (Health check em ambos os serviços)
+
+---
+
+## 8. Testes Automatizados (Jest + Playwright)
+
+O repositório conta com suítes automatizadas na raiz usando **Jest** (testes de API, integração, Snapshot Pattern e resiliência) e **Playwright** (testes E2E no navegador real):
+
+### Instalar dependências de teste (na raiz)
+```bash
+npm install
+```
+
+### Rodar os testes de API e Resiliência (Jest)
+Os testes sobem um cluster isolado temporário (portas `4301`–`4304` e SQLites temporários), sem interferir nos containers do Docker Compose:
+```bash
+npm run test:api
+```
+
+### Rodar os testes E2E no navegador (Playwright)
+Com a aplicação rodando (ex.: `docker compose up -d` em `http://localhost:3000`):
+```bash
+npm run test:e2e
+```
+Para acompanhar visualmente no navegador:
+```bash
+npm run test:e2e:headed
+```
+
+### Rodar toda a suíte
+```bash
+npm test
+```

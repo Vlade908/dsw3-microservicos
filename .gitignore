@@ -34,3 +34,8 @@ Thumbs.db
 
 # Impeccable local overrides
 .impeccable/config.local.json
+
+# Test outputs
+playwright-report/
+test-results/
+coverage/
